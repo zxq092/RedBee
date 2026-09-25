@@ -1,0 +1,52 @@
+# ============ 敏感信息（绝不可提交）============
+secrets/
+
+# 环境变量（真实密钥勿提交；*.example.env 模板保留）
+.env
+*.env
+!*.example.env
+
+# ============ 运行时 / 缓存 ============
+runtime/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ============ 运行数据（DB / 日志 / 状态）============
+# data/          运行数据：redkb.db 知识库 + targets/ 靶场档案，首次运行自动创建
+data/
+*.log
+# CJ             curl cookie 残留
+CJ
+# strix_runs/    历史 Strix 运行产物
+strix_runs/
+
+# ============ 开源时不纳入（第三方源码 / 内部文档 / 开发产物）============
+# distill/       第三方引擎源码（许可证，不分发）
+distill/
+# clown-src-6k-skill/  vendor 技能包源码
+clown-src-6k-skill/
+clown-src-6k-skill.zip
+# ref/           第三方源码
+ref/
+# vendor/        第三方 vendored 依赖
+vendor/
+# docs/          内部技术文档（含竞品对比，不外发）
+docs/
+# deploy/        靶场源码（README 指向官方仓库即可）
+deploy/
+
+# ============ 内部运维 / 个人文件 ============
+AGENTS.md
+todolist.md
+
+# 一次性开发脚本（引用本机开发路径 / 密钥文件）
+platform/juiceshop_progress.py
+platform/ingest_juiceshop_solutions.py
+platform/generify_juiceshop_docs.py
+
+# 内部 pi 引擎实验 UI（依赖本机 runtime/ 与内部 LLM 网关，不随仓库发布）
+platform/pi_web/
+platform/pi_extensions/
+platform/start_piweb.sh

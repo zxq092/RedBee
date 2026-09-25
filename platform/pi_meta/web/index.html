@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="docTitle">渗透智能体 · 控制台</title>
+<style>
+  :root {
+    /* 基础 */
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3441;
+    --text:#e6edf3; --muted:#8b949e; --accent:#4f8cff; --accent2:#5ad1a4;
+    --red:#ff5c5c; --yellow:#ffc247; --purple:#b083f0; --green:#7ee787;
+    /* 语义化（供白天模式覆盖） */
+    --hover:var(--hover); --code-bg:var(--code-bg); --code-border:var(--code-border);
+    --card-bg:var(--card-bg); --board-bg:var(--board-bg); --chip-bg:var(--chip-bg);
+    --blue:var(--blue); --blue-soft:var(--blue-soft);
+    --danger-bg:var(--danger-bg); --danger-border:var(--danger-border); --danger-text:var(--danger-text);
+    --muted2:var(--muted2); --pill-bg:var(--pill-bg); --toast-bg:var(--pill-bg); --map-dot:var(--map-dot);
+    --sel:var(--sel); --selbar:var(--selbar); --sb-thumb:var(--sb-thumb);
+  }
+  /* ---- 白天模式 ---- */
+  [data-theme="light"] {
+    --bg:#f6f8fa; --panel:#ffffff; --panel2:#f0f3f6; --border:#d0d7de;
+    --text:#24292f; --muted:var(--muted2); --accent:#0969da; --accent2:#1a7f37;
+    --red:#cf222e; --yellow:#9a6700; --purple:#8250df; --green:#1a7f37;
+    --hover:#eaeef2; --code-bg:#ffffff; --code-border:#d0d7de;
+    --card-bg:#ffffff; --board-bg:#f6f8fa; --chip-bg:#d1d9e0;
+    --blue:#0969da; --blue-soft:#0550ae;
+    --danger-bg:#ffebe9; --danger-border:#ffaba8; --danger-text:#cf222e;
+    --muted2:#59636e; --pill-bg:#eaeef2; --toast-bg:#6e7781; --map-dot:#8c959f;
+    --sel:#ddf4ff; --selbar:#ddf4ff; --sb-thumb:#afb8c1;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--text); height:100vh; overflow:hidden; }
+  #app { display:flex; height:100vh; }
+
+  /* ---- 左侧会话栏 ---- */
+  aside { width:264px; min-width:220px; background:var(--panel); border-right:1px solid var(--border);
+          display:flex; flex-direction:column; }
+  .brand { padding:14px 16px; font-size:16px; font-weight:800; color:var(--accent);
+           border-bottom:1px solid var(--border); letter-spacing:.5px; }
+  .brand small { display:block; font-size:11px; color:var(--muted); font-weight:500; margin-top:2px; }
+  #newbtn { margin:10px 12px 6px; }
+  #sessSearch { margin:0 12px 8px; width:calc(100% - 24px); font-size:12px; }
+  #sessToolbar { display:flex; align-items:center; justify-content:space-between; gap:8px;
+                 padding:4px 12px 6px; }
+  #sessToolbar .selall { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:5px; cursor:pointer; }
+  #sessToolbar .selall input { cursor:pointer; }
+  #sessToolbar .bulkd { font-size:12px; padding:4px 9px; }
+  #sessToolbar .bulkd:disabled { opacity:.4; cursor:not-allowed; }
+  #sessToolbar .bulkd.armed { background:var(--danger-bg); border-color:var(--danger-border); color:var(--danger-text); }
+  .sess .ck { width:15px; height:15px; flex-shrink:0; cursor:pointer; accent-color:var(--accent);
+              opacity:0; transition:opacity .1s; }
+  .sess:hover .ck, .sess .ck:checked { opacity:1; }
+  .sess.selected { background:var(--sel); }
+  #sessionList { flex:1; overflow-y:auto; padding:2px 8px; }
+  .sess { padding:8px 8px 8px 10px; border-radius:8px; cursor:pointer; color:var(--muted); font-size:13px;
+          display:flex; flex-direction:row; align-items:center; gap:6px; position:relative; }
+  .sess:hover { background:var(--panel2); }
+  .sess.active { background:var(--selbar); color:var(--text); }
+  .sess .si { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .sess .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+  .sess .m { font-size:11px; color:var(--muted); }
+  .run-dot { width:7px; height:7px; border-radius:50%; background:var(--green); flex-shrink:0;
+             animation:pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .sess .acts { display:none; gap:4px; flex-shrink:0; }
+  .sess:hover .acts { display:flex; }
+  .ibtn { background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:6px;
+          width:22px; height:22px; font-size:12px; cursor:pointer; line-height:1; }
+  .ibtn:hover { border-color:var(--accent); color:var(--text); }
+  .ibtn.del:hover { background:var(--danger-bg); color:var(--danger-text); border-color:var(--danger-border); }
+  .ibtn.armed { width:auto; padding:0 6px; background:var(--danger-bg); color:var(--danger-text); border-color:var(--danger-border); font-size:11px; }
+  .rename-input { width:100%; font-size:12.5px; background:var(--bg); border:1px solid var(--accent);
+                  border-radius:5px; color:var(--text); padding:2px 5px; outline:none; }
+  aside footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
+
+  /* ---- 主区 ---- */
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #topbar { padding:10px 16px; border-bottom:1px solid var(--border); display:flex;
+            align-items:center; gap:10px; flex-wrap:wrap; background:var(--panel); }
+  #topbar label { font-size:12px; color:var(--muted); }
+  input,select { background:var(--bg); color:var(--text); border:1px solid var(--border);
+                 border-radius:7px; padding:7px 10px; font-size:13px; outline:none; }
+  input:focus,select:focus { border-color:var(--accent); }
+  #targetInput { flex:1; min-width:180px; }
+  .tbtn { background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:7px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .tbtn:hover { border-color:var(--accent); color:var(--text); }
+  .tbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .send.stopping { background:#a63232; border-color:#c0392b; }
+  .send.stopping:hover { background:#c0392b; }
+  .boardline { align-self:flex-start; background:none; border:none; color:var(--muted2); font-size:11px;
+               padding:2px 8px; line-height:1.5; }
+  #authbar { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  #userBadge { font-size:12px; color:var(--muted); white-space:nowrap; }
+
+  /* ---- 对话区 ---- */
+  #content { flex:1; display:flex; flex-direction:column; min-height:0; position:relative; }
+  #msgs { flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:920px; padding:11px 14px; border-radius:12px; line-height:1.6; font-size:13.5px;
+         white-space:pre-wrap; word-break:break-word; }
+  .msg.user { align-self:flex-end; background:var(--accent); color:#fff; }
+  .msg.assistant { align-self:flex-start; background:var(--panel2); border:1px solid var(--border); }
+  .msg.sys { align-self:center; background:var(--code-border); color:var(--muted); font-size:12px; }
+  .msg.error { align-self:flex-start; background:var(--danger-bg); border:1px solid var(--danger-border); color:var(--danger-text); }
+  .meta-line { font-size:11px; color:var(--muted); margin-bottom:4px; }
+  .status-pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .st-running{background:#2b4a2b;color:var(--green);} .st-done{background:#2b3a5f;color:var(--blue);}
+  .st-error{background:var(--danger-bg);color:var(--danger-text);} .st-cancel{background:#3d3520;color:var(--yellow);}
+  .st-found{background:var(--pill-bg);color:var(--muted);} .st-confirmed{background:#2b4a2b;color:var(--green);}
+  .st-false_positive{background:var(--danger-bg);color:var(--danger-text);}
+
+  /* ---- 执行过程卡片（按模块分组）---- */
+  .livecard { align-self:flex-start; width:100%; max-width:920px; background:var(--card-bg); border:1px solid var(--border);
+              border-radius:12px; overflow:hidden; }
+  .lc-head { display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--panel2);
+             border-bottom:1px solid var(--border); font-size:12.5px; }
+  .lc-dot { width:9px; height:9px; border-radius:50%; background:var(--green); animation:pulse 1.4s infinite; flex-shrink:0; }
+  .lc-dot.done { background:var(--blue); animation:none; }
+  .lc-dot.dead { background:var(--red); animation:none; }
+  .lc-title { font-weight:700; }
+  .lc-status { font-size:11px; font-weight:700; padding:1px 8px; border-radius:9px; }
+  .lc-status.st-running { color:var(--green); }
+  .lc-status.st-done { color:var(--blue); }
+  .lc-status.st-error { color:var(--danger-text); }
+  .lc-status.st-cancel { color:var(--yellow); }
+  .lc-meta { color:var(--muted); font-size:11.5px; }
+  .lc-follow { margin-left:auto; }
+  .lc-follow.off { opacity:.5; }
+  .lc-agent { font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:9px; flex-shrink:0;
+    background:rgba(56,139,253,.15); color:var(--blue); border:1px solid rgba(56,139,253,.4); }
+  .lc-stepper { display:flex; align-items:center; gap:3px; flex:1; min-width:0; overflow:hidden; }
+  .ph { font-size:10px; padding:1px 6px; border-radius:8px; white-space:nowrap; flex-shrink:0;
+    background:var(--hover); color:var(--muted); border:1px solid var(--code-border); }
+  .ph.cur { background:rgba(63,185,80,.18); color:var(--green); border-color:rgba(63,185,80,.5); font-weight:700; }
+  .ph.done { background:var(--chip-bg); color:var(--blue); border-color:var(--code-border); }
+  .ph-sep { color:var(--border); font-size:9px; flex-shrink:0; }
+  .mod-agent { font-size:9.5px; padding:0 5px; border-radius:6px; flex-shrink:0;
+    background:rgba(56,139,253,.12); color:var(--blue); border:1px solid rgba(56,139,253,.3); }
+  .lc-modules { max-height:340px; overflow-y:auto; }
+  .rep-dl { margin-left:auto; }
+  .lc-mod { border-top:1px solid var(--code-border); }
+  .lc-mod:first-child { border-top:none; }
+  .lc-mod-head { display:flex; align-items:center; gap:8px; padding:7px 12px; cursor:pointer; font-size:12.5px; }
+  .lc-mod-head:hover { background:var(--hover); }
+  .mod-dot { width:7px; height:7px; border-radius:50%; background:var(--green); animation:pulse 1.4s infinite; flex-shrink:0; }
+  .mod-dot.done { background:var(--blue); animation:none; }
+  .mod-dot.dead { background:var(--red); animation:none; }
+  .mod-name { font-weight:700; color:var(--blue-soft); font-family:ui-monospace,monospace; }
+  .mod-state { color:var(--muted); font-size:11.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mod-calls { color:var(--muted); font-size:11px; flex-shrink:0; }
+  .chev { color:var(--muted); font-size:11px; flex-shrink:0; transition:transform .15s; }
+  .lc-mod.collapsed .chev { transform:rotate(-90deg); }
+  .lc-mod.collapsed .lc-mod-body { display:none; }
+  .lc-mod-body { padding:2px 12px 8px 28px; }
+  .lc-entry { display:flex; gap:8px; align-items:baseline; padding:2.5px 0; cursor:pointer;
+              font-family:ui-monospace,monospace; font-size:11.5px; border-radius:5px; }
+  .lc-entry:hover { background:var(--hover); }
+  .e-time { color:var(--muted2); flex-shrink:0; }
+  .e-tool { color:var(--blue); font-weight:700; flex-shrink:0; min-width:86px; }
+  .e-brief { color:#c9d1d9; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .e-full { background:var(--code-bg); border:1px solid var(--code-border); border-radius:7px; padding:8px 10px; margin:3px 0 7px;
+            font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word;
+            max-height:220px; overflow:auto; color:#a5d6ff; }
+  .lc-empty { color:var(--muted); font-size:12px; padding:8px 12px; }
+
+  /* ---- 漏洞板区（融进执行卡，实时）---- */
+  .lc-board { border-top:1px solid var(--border); background:var(--board-bg); }
+  .lb-head { display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--code-border); font-size:12px; }
+  .lb-title { font-weight:700; color:var(--blue-soft); }
+  .lb-count { font-size:11px; color:var(--muted); }
+  .lb-rep { margin-left:auto; }
+  .lb-rep:disabled { opacity:.5; cursor:wait; }
+  .lb-list { max-height:230px; overflow-y:auto; padding:3px 0; }
+  .lb-empty { color:var(--muted); font-size:12px; padding:6px 12px; }
+  .lb-row { display:flex; gap:8px; align-items:center; padding:5px 12px; cursor:pointer; font-size:12.5px; }
+  .lb-row:hover { background:var(--hover); }
+  .lb-row .f-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lb-loc { color:var(--muted); font-size:11px; font-family:ui-monospace,monospace; max-width:32%;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
+  .lb-fp { opacity:.5; }
+  .lb-fp .f-title { text-decoration:line-through; }
+  .lb-detail { background:var(--code-bg); border:1px solid var(--code-border); border-radius:7px; margin:2px 12px 8px;
+               padding:8px 10px; font-size:11px; }
+  .lb-detail h5 { color:var(--blue); font-size:11px; margin:5px 0 2px; font-weight:700; }
+  .lb-detail pre { white-space:pre-wrap; word-break:break-word; max-height:150px; overflow:auto;
+                    color:#a5d6ff; font-size:11px; line-height:1.5; }
+  .lb-log { margin-left:0; }
+  .lb-head .tbtn + .tbtn { margin-left:0; }
+
+  /* ---- 模块地图（执行卡内，结束后定格=漏洞地图）---- */
+  .lc-map { display:flex; flex-wrap:wrap; gap:6px; padding:8px 12px; border-bottom:1px solid var(--code-border); }
+  .mp { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 10px; border-radius:12px;
+        border:1px solid var(--code-border); color:var(--muted); cursor:pointer; background:transparent; font-family:inherit; }
+  .mp:hover { border-color:var(--accent); }
+  .mp i { width:6px; height:6px; border-radius:50%; background:var(--map-dot); font-style:normal; flex-shrink:0; }
+  .mp-run { border-color:rgba(126,231,135,.6); color:var(--text); }
+  .mp-run i { background:var(--green); animation:pulse 1.2s infinite; }
+  .mp-ok { border-color:rgba(126,231,135,.7); background:rgba(126,231,135,.1); color:var(--green); }
+  .mp-ok i { background:var(--green); }
+  .mp-none { background:var(--chip-bg); color:var(--muted); }
+  .mp-none i { background:var(--map-dot); }
+  .mp-fail { border-color:rgba(255,92,92,.7); background:rgba(255,92,92,.08); color:var(--red); }
+  .mp-fail i { background:var(--red); }
+  .mp-skip { opacity:.5; text-decoration:line-through; }
+  .ph.exploit-cur-count { font-variant-numeric:tabular-nums; }
+
+  /* ---- 左栏会话：任务状态副标题 + 底部进度条 ---- */
+  .sess { position:relative; overflow:hidden; }
+  .sess .m.taskrun { color:var(--green); }
+  .sess .m.taskdone.ok { color:var(--green); }
+  .sess .m.taskdone.bad { color:var(--red); }
+  .sess .pbar { position:absolute; left:0; bottom:0; height:2px; background:var(--accent); min-width:2px; }
+
+  /* ---- 会话内任务记录（报告/日志随时可取）---- */
+  .artifact-row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; flex-wrap:wrap; }
+  .artifact-sum { width:100%; font-size:11px; color:var(--muted); padding-left:2px; }
+  .artifact-id { font-family:ui-monospace,monospace; color:var(--muted); }
+  .artifact-stat { color:var(--muted); font-size:11px; flex:1; }
+
+  /* ---- 新会话空态快捷启动 ---- */
+  #empty { text-align:center; color:var(--muted); padding:60px 20px; font-size:14px; }
+  .empty-title { margin-bottom:14px; }
+  .chips { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .chip { background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:16px;
+          padding:6px 14px; font-size:12.5px; cursor:pointer; }
+  .chip:hover { border-color:var(--accent); color:var(--accent); }
+  .chip small { color:var(--muted); margin-left:6px; }
+
+  /* ---- findings 摘要（收尾消息）---- */
+  .report-msg { align-self:flex-start; width:100%; max-width:920px; }
+  .rep-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .sev { font-size:10.5px; font-weight:800; padding:1px 7px; border-radius:8px; text-transform:uppercase; flex-shrink:0; }
+  .sev-critical{background:var(--danger-bg);color:var(--danger-text);} .sev-high{background:var(--danger-bg);color:var(--danger-text);}
+  .sev-medium{background:#3d3520;color:var(--yellow);} .sev-low{background:#2b3a5f;color:var(--blue);}
+  .sev-info{background:var(--pill-bg);color:var(--muted);}
+  .f-class { font-family:ui-monospace,monospace; color:var(--blue-soft); font-size:11.5px; flex-shrink:0; min-width:74px; }
+  .f-title { flex:1; min-width:0; }
+  .f-status { font-size:10.5px; padding:1px 7px; border-radius:8px; font-weight:700; flex-shrink:0; }
+  .rep-none { color:var(--muted); font-size:12.5px; }
+  .report-msg details { margin-top:8px; }
+  .report-msg summary { cursor:pointer; color:var(--accent); font-size:12px; }
+  .rep-md { background:var(--code-bg); border:1px solid var(--code-border); border-radius:8px; padding:10px; margin-top:6px;
+            font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:320px; overflow:auto; }
+
+  /* ---- 输入区 ---- */
+  #inputbar { padding:12px 16px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:0; background:var(--panel); }
+  .ib-row { display:flex; gap:10px; align-items:flex-end; }
+  #advParams { font-size:13px; color:var(--muted,#8b949e); }
+  #advParams[open] { margin-bottom:10px; }
+  #advParams summary { cursor:pointer; padding:4px 0; user-select:none; font-size:12px; color:var(--muted,#8b949e); }
+  #advParams summary:hover { color:var(--text); }
+  .adv-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px 16px;
+              padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
+  .adv-grid label { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--text); }
+  .adv-grid .hint { font-size:11px; color:#8b949e; line-height:1.3; }
+  .adv-grid input[type=number] { background:var(--bg); border:1px solid var(--border); border-radius:6px;
+              color:var(--text); padding:5px 8px; font-size:12px; width:110px; outline:none; }
+  .adv-grid input[type=number]:focus { border-color:var(--accent); }
+  .adv-grid select { background:var(--bg); border:1px solid var(--border); border-radius:6px;
+              color:var(--text); padding:5px 8px; font-size:12px; width:100%; outline:none; }
+  .adv-grid select:focus { border-color:var(--accent); }
+  .adv-grid .chk { flex-direction:row; align-items:center; gap:8px; }
+  .adv-grid .chk input { width:auto; }
+  .adv-grid .chk .hint { width:100%; }
+  #taskInput { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:10px;
+               padding:12px 14px; font-size:14px; color:var(--text); resize:none; min-height:52px; max-height:200px;
+               line-height:1.5; overflow-y:auto; outline:none; font-family:inherit; }
+  #taskInput:focus { border-color:var(--accent); }
+  .send { background:var(--accent); color:#fff; border:none; border-radius:10px; padding:12px 20px;
+          font-size:14px; cursor:pointer; height:52px; }
+  .send:disabled { opacity:.5; cursor:not-allowed; }
+
+  /* ---- 浮动控件 ---- */
+  #followJump { position:absolute; right:24px; bottom:86px; background:var(--accent); color:#fff; border:none;
+                border-radius:16px; padding:6px 14px; font-size:12px; cursor:pointer; display:none;
+                box-shadow:0 3px 10px rgba(0,0,0,.4); z-index:5; }
+  #toast { position:fixed; left:50%; bottom:30px; transform:translateX(-50%) translateY(20px);
+           background:var(--pill-bg); border:1px solid var(--border); color:var(--text); border-radius:9px;
+           padding:9px 18px; font-size:13px; opacity:0; pointer-events:none; transition:all .2s; z-index:99; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  ::-webkit-scrollbar{width:9px;height:9px;} ::-webkit-scrollbar-thumb{background:var(--sb-thumb);border-radius:9px;}
+  @media (max-width:760px){ aside{width:200px;} }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand">渗透智能体<small>PI Meta · RedBee</small></div>
+    <button data-i18n="newSess" class="tbtn on" id="newbtn" style="padding:10px;width:calc(100% - 24px);margin:10px 12px 6px">＋ 新建会话</button>
+    <input data-i18n-ph="searchSess" id="sessSearch" placeholder="搜索会话…">
+    <div id="sessToolbar">
+      <label data-i18n="selectAll" class="selall" title="勾选后批量删除"><input type="checkbox" id="selectAll"> 全选</label>
+      <button data-i18n="delSel" class="tbtn bulkd" id="bulkDelBtn" disabled>删除选中 (0)</button>
+    </div>
+    <div id="sessionList"></div>
+    <footer data-i18n="loadingModels" id="modelFooter">加载模型…</footer>
+  </aside>
+
+  <main>
+    <div id="topbar">
+      <label data-i18n="target">目标</label>
+      <input id="targetInput" list="targetOptions" placeholder="http://<target-ip>  或留空（未知靶场先侦察）" autocomplete="off">
+      <datalist id="targetOptions"></datalist>
+      <label data-i18n="model">模型</label>
+      <select id="modelSelect" title="全局模型覆盖：影响之后所有新任务；网关重启后重置"></select>
+      <div id="authbar">
+        <button class="tbtn" id="langBtn" title="切换语言 / Switch language">中/EN</button>
+        <button class="tbtn" id="themeBtn" title="切换明暗主题（跟随系统/暗/亮）">🌙</button>
+        <span id="userBadge"></span>
+        <input id="tokenInput" type="password" placeholder="token" style="width:110px;display:none">
+        <button data-i18n="login" class="tbtn" id="loginBtn" style="display:none">登录</button>
+      </div>
+    </div>
+
+    <div id="content">
+      <div id="msgs"><div id="empty">新建会话或选择左侧历史会话，开始渗透任务</div></div>
+      <button data-i18n="toBottom" id="followJump">↓ 回到底部</button>
+      <div id="inputbar">
+        <details id="advParams">
+          <summary data-i18n="advParams">⚙ 高级参数（仅本任务生效，留空 = 跟随全局设置）</summary>
+          <div class="adv-grid">
+            <label>并行模块数
+              <span class="hint">本任务同时打几个模块。多任务并行时开太高会让 LLM 超时挂死</span>
+              <input id="pMaxParallel" type="number" min="1" max="8" placeholder="全局 2">
+            </label>
+            <label>候选模块数
+              <span class="hint">9 个 OWASP 模块派几个。小目标 2-3 个就够，省时间</span>
+              <input id="pMaxModules" type="number" min="1" max="9" placeholder="全局 9">
+            </label>
+            <label>单模块最大轮次
+              <span class="hint">每个模块子 agent 的 LLM 对话轮数上限。快扫调低防游走</span>
+              <input id="pChildTurns" type="number" min="5" max="200" placeholder="全局 80">
+            </label>
+            <label>单模块时间预算（秒）
+              <span class="hint">单个模块子 agent 最长运行时间。CTF 长跑加大</span>
+              <input id="pTaskBudget" type="number" min="300" max="21600" step="300" placeholder="全局 5400">
+            </label>
+            <label>本任务模型
+              <span class="hint">指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动</span>
+              <select id="pModel"><option value="">全局自动（跟随优先级队列）</option></select>
+            </label>
+            <label>死模块重试冷却（秒）
+              <span class="hint">LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试</span>
+              <input id="pRetryDelay" type="number" min="0" max="600" step="30" placeholder="全局 60">
+            </label>
+            <label class="chk"><input id="pSkipRecon" type="checkbox">
+              <span>跳过侦察直接打<br><span class="hint">有档案的靶场跳过重复侦察（已知靶场默认已开）</span></span>
+            </label>
+            <label class="chk"><input id="pForceAll" type="checkbox">
+              <span>全派候选模块<br><span class="hint">不做 LLM 剪枝，候选模块全部派发（已知靶场默认已开）</span></span>
+            </label>
+          </div>
+        </details>
+        <div class="ib-row">
+        <textarea id="taskInput" placeholder="描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证"></textarea>
+        <button class="send" id="sendBtn">发送</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ---- 明暗主题：跟随系统 / 暗色 / 亮色 三态切换，记忆到 localStorage ---- */
+const THEME_MODES = ['auto','dark','light'];
+const THEME_ICON  = {auto:'🌓', dark:'🌙', light:'☀️'};
+let themeMode = localStorage.getItem('redbee_theme') || 'auto';
+function applyTheme(){
+  const dark = (themeMode === 'dark') ||
+    (themeMode === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches === false);
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  localStorage.setItem('redbee_theme', themeMode);
+  const b = document.getElementById('themeBtn');
+  if (b) b.textContent = THEME_ICON[themeMode];
+}
+function cycleTheme(){
+  const i = THEME_MODES.indexOf(themeMode);
+  themeMode = THEME_MODES[(i + 1) % THEME_MODES.length];
+  applyTheme();
+}
+if (window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
+}
+applyTheme();
+
+/* ---- 国际化：中文(默认) / English ---- */
+let lang = localStorage.getItem('redbee_lang') || 'zh';   // 'zh' 或 'en'
+const TRANS = {
+  zh: {"docTitle": "渗透智能体 · 控制台",
+  "brand": "渗透智能体",
+  "newSess": "＋ 新建会话",
+  "searchSess": "搜索会话…",
+  "selectAll": "全选",
+  "delSel": "删除选中",
+  "loadingModels": "加载模型…",
+  "target": "目标",
+  "model": "模型",
+  "login": "登录",
+  "empty": "新建会话或选择左侧历史会话，开始渗透任务",
+  "toBottom": "↓ 回到底部",
+  "advParams": "⚙ 高级参数（仅本任务生效，留空 = 跟随全局设置）",
+  "pParallel": "并行模块数",
+  "pParallelHint": "本任务同时打几个模块。多任务并行时开太高会让 LLM 超时挂死",
+  "pModules": "候选模块数",
+  "pModulesHint": "9 个 OWASP 模块派几个。小目标 2-3 个就够，省时间",
+  "pTurns": "单模块最大轮次",
+  "pTurnsHint": "每个模块子 agent 的 LLM 对话轮数上限。快扫调低防游走",
+  "pBudget": "单模块时间预算（秒）",
+  "pBudgetHint": "单个模块子 agent 最长运行时间。CTF 长跑加大",
+  "pModelLbl": "本任务模型",
+  "pModelHint": "指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动",
+  "autoModel": "全局自动（跟随优先级队列）",
+  "pRetry": "死模块重试冷却（秒）",
+  "pRetryHint": "LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试",
+  "pSkipRecon": "跳过侦察直接打",
+  "pSkipReconHint": "有档案的靶场跳过重复侦察（已知靶场默认已开）",
+  "pForceAll": "全派候选模块",
+  "pForceAllHint": "不做 LLM 剪枝，候选模块全部派发（已知靶场默认已开）",
+  "taskPh": "描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证",
+  "sendP": "发送渗透任务",
+  "liveExec": "执行过程",
+  "redbeeAgent": "RedBee 自研 agent",
+  "follow": "跟随 ✓",
+  "board": "漏洞板",
+  "curReport": "当前报告 ⬇",
+  "execLog": "执行日志 ⬇"},
+  en: {"docTitle": "RedBee · Pentest Console",
+  "brand": "RedBee Console",
+  "newSess": "+ New Session",
+  "searchSess": "Search sessions…",
+  "selectAll": "Select all",
+  "delSel": "Delete selected",
+  "loadingModels": "Loading models…",
+  "target": "Target",
+  "model": "Model",
+  "login": "Login",
+  "empty": "Start a new session or select a history one on the left, then begin a pentest.",
+  "toBottom": "↓ Bottom",
+  "advParams": "⚙ Advanced (this task only; blank = follow global)",
+  "pParallel": "Parallel modules",
+  "pParallelHint": "How many modules to hit in parallel. Too high under multitasking can make LLM time out.",
+  "pModules": "Candidate modules",
+  "pModulesHint": "How many of the 9 OWASP modules to dispatch. 2-3 is enough for small targets.",
+  "pTurns": "Max turns per module",
+  "pTurnsHint": "LLM turn cap per module child agent. Lower for a quick scan.",
+  "pBudget": "Budget per module (s)",
+  "pBudgetHint": "Max run time per module child agent. Raise for long CTF runs.",
+  "pModelLbl": "Model for this task",
+  "pModelHint": "Bump this model to first; on failure auto-degrade to the queue. Blank = global auto.",
+  "autoModel": "Auto (follow priority queue)",
+  "pRetry": "Module retry cooldown (s)",
+  "pRetryHint": "After an LLM failure kills a module, retry it once after N s. 0 = don't retry.",
+  "pSkipRecon": "Skip recon, exploit directly",
+  "pSkipReconHint": "Known targets skip repeated recon (enabled by default for known targets).",
+  "pForceAll": "Dispatch all candidate modules",
+  "pForceAllHint": "Skip LLM pruning; dispatch all candidate modules.",
+  "taskPh": "Describe the pentest, e.g. hit all DVWA modules, one clean PoC each, don't over-verify",
+  "sendP": "Send pentest task",
+  "liveExec": "Execution",
+  "redbeeAgent": "RedBee agent",
+  "follow": "Follow ✓",
+  "board": "Vulnerabilities",
+  "curReport": "Report ⬇",
+  "execLog": "Log ⬇"},
+};
+function _v(o, vars){
+  let s = o[lang] || o.zh || '';           // 取当前语言，缺则回退中文
+  if (vars){ for (const k in vars) s = s.split('{'+k+'}').join(vars[k]); }
+  return s;
+}
+// REKEY: t('key', {vars}) 读文案
+function t(key, vars){ return _v(TRANS[key] || {}, vars) || key; }
+// allI18nText(): 收集静态节点需翻译的文案，供 applyI18n 统一替换
+function setLang(v){
+  lang = (v === 'en') ? 'en' : 'zh';
+  localStorage.setItem('redbee_lang', lang);
+  applyI18n();
+  document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN';
+}
+function cycleLang(){ setLang(lang === 'zh' ? 'en' : 'zh'); }
+function tr(key, vars){ return t(key, vars); }
+
+/* ---- 主题切换按钮（DOM 就绪后绑定）---- */
+function bindThemeBtn(){ const b = document.getElementById('themeBtn'); if (b) b.onclick = cycleTheme; }
+document.addEventListener('DOMContentLoaded', bindThemeBtn);
+
+/* ---- 语言切换按钮 + 静态文案刷新 ---- */
+function applyI18n(){
+  // 静态元素：data-i18n = TRANS key
+  document.querySelectorAll('[data-i18n]').forEach(el0=>{
+    const k = el0.getAttribute('data-i18n');
+    // 只翻译"叶子文本"节点(无子元素)，避免 textContent 清掉内嵌结构(如 <small>)
+    if (TRANS[k] && !el0.children.length) el0.textContent = _v(TRANS[k]);
+  });
+  // 静态 placeholder
+  document.querySelectorAll('[data-i18n-ph]').forEach(el0=>{
+    const k = el0.getAttribute('data-i18n-ph');
+    if (TRANS[k]) el0.setAttribute('placeholder', _v(TRANS[k]));
+  });
+  const lb = document.getElementById('langBtn');
+  if (lb) lb.textContent = (lang === 'en') ? '中文' : 'EN';
+}
+function bindLangBtn(){ const b = document.getElementById('langBtn'); if (b) b.onclick = cycleLang; }
+document.addEventListener('DOMContentLoaded', ()=>{ bindLangBtn(); applyI18n(); });
+const $ = s => document.querySelector(s);
+const el = (t, cls, txt) => { const e = document.createElement(t); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e; };
+const nowStr = () => new Date().toTimeString().slice(0,8);
+const SEV_RANK = {critical:0, high:1, medium:2, low:3, info:4};
+
+/* ---------- 状态 ---------- */
+let curSid = null;
+let authed = false;
+ let authEnabled = false;
+ let sessionToken = localStorage.getItem('pimeta_token') || "";
+ let curTaskId = null;
+ let taskSid = null;           // 当前任务所属会话（完成后报告归属用）
+ let finalStatus = null;
+ let eventSource = null;
+ let liveState = null;            // 执行过程卡片状态
+ let curTargetId = "";
+ const knownTargets = [];         // [{id,name,addr}]
+ const runningTasks = {};         // session_id -> task_id
+ let taskBySess = {};            // session_id -> task（含 target）
+ const MODEL_PRIORITY_DEFAULT = ["Qwen3.8-27B","DeepSeek-V4-Flash"];
+
+/* ---------- API helper ---------- */
+function _headers(json){
+  const h = {};
+  if (json) h['Content-Type']='application/json';
+  if (sessionToken) h['Authorization']='Bearer '+sessionToken;
+  return h;
+}
+async function api(path, {method='GET', json=null}={}){
+  const res = await fetch(path, {method, headers:_headers(json!==null), body: json!==null?JSON.stringify(json):undefined});
+  let data=null;
+  try { data = await res.json(); } catch(e){}
+  if (!res.ok) { const msg=(data&&data.error)||('HTTP '+res.status); throw new Error(msg); }
+  return data;
+}
+
+let toastTimer=null;
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 3200);
+}
+
+/* ---------- 滚动跟随 ---------- */
+let follow = true;
+function isNearBottom(){
+  const m=$('#msgs');
+  return m.scrollHeight - m.scrollTop - m.clientHeight < 60;
+}
+function setFollow(v){
+  follow = v;
+  $('#followJump').style.display = v ? 'none' : 'block';
+  if (liveState) liveState.followBtn.classList.toggle('off', !v);
+}
+function scrollBottom(force){
+  if (force || follow){
+    const m=$('#msgs'); m.scrollTop = m.scrollHeight;
+  }
+}
+$('#msgs').addEventListener('scroll', ()=>{
+  if (isNearBottom()) setFollow(true); else setFollow(false);
+});
+$('#followJump').onclick = ()=>{ setFollow(true); scrollBottom(true); };
+
+/* ---------- 渲染: 消息 ---------- */
+function renderMsg(role, content, extra){
+  // 旧会话的 [漏洞板] 逐条事件：弱化为一行灰字（新任务的板在执行卡的漏洞板区，不再落会话）
+  if (typeof content==='string' && content.startsWith('[漏洞板]')){
+    return el('div','boardline', content);
+  }
+  const wrap = el('div', 'msg ' + role);
+  if (extra && extra.meta) wrap.appendChild(el('div', 'meta-line', extra.meta));
+  if (role==='assistant' && extra && extra.status){
+    const sp = el('span','status-pill st-'+extra.status, extra.status.toUpperCase());
+    wrap.appendChild(sp);
+  }
+  const empty=$('#empty'); if (empty) empty.remove();
+  if (typeof content === 'string' && /```/.test(content)){
+    content.split(/```/).forEach((part,i)=>{
+      if (i%2===0){ if(part.trim()) wrap.appendChild(document.createTextNode(part)); }
+      else { const pre=el('pre'); pre.textContent=part.replace(/^\w+\n/,''); wrap.appendChild(pre); }
+    });
+  } else {
+    wrap.appendChild(document.createTextNode(content));
+  }
+  return wrap;
+}
+
+/* ---------- 会话列表 ---------- */
+const selectedSids = new Set();
+  async function refreshSessions(){
+   let list = null, tasks = [];
+   try { [list, tasks] = await Promise.all([api('/api/sessions'), api('/api/tasks')]); }
+   catch(e){
+     try { list = await api('/api/sessions'); } catch(e2){ return; }
+   }
+   if (!list) return;
+   taskBySess = {};
+   (tasks||[]).forEach(t=>{ if (t.session_id && !taskBySess[t.session_id]) taskBySess[t.session_id] = t; });
+   renderSessionList(list, taskBySess);
+ }
+function updateBulkBtn(){
+  const btn = $('#bulkDelBtn');
+  btn.textContent = `删除选中 (${selectedSids.size})`;
+  btn.disabled = selectedSids.size===0;
+}
+function renderSessionList(list, taskBySess={}){
+  const kw = $('#sessSearch').value.trim().toLowerCase();
+  const box = $('#sessionList'); box.innerHTML='';
+  list.forEach(s=>{
+    if (kw && !(s.title||'').toLowerCase().includes(kw) && !s.id.includes(kw)) return;
+    sessTitles[s.id] = s.title || s.id;
+    const sel = selectedSids.has(s.id);
+    const d = el('div','sess' + (s.id===curSid?' active':'') + (sel?' selected':''));
+    d.dataset.sid = s.id;
+    const ck = document.createElement('input');
+    ck.type='checkbox'; ck.className='ck'; ck.checked=sel;
+    if (runningTasks[s.id]){ ck.disabled=true; ck.title='任务运行中，不可删除'; } else { ck.title='勾选批量删除'; }
+    ck.onclick = e=>{ e.stopPropagation(); if(ck.checked) selectedSids.add(sid); else selectedSids.delete(sid);
+      d.classList.toggle('selected', ck.checked); updateBulkBtn(); syncSelectAll(); };
+    d.appendChild(ck);
+    const info = el('div','si');
+    const titleEl = el('div','t');
+    if (runningTasks[s.id]) titleEl.appendChild(el('span','run-dot',''));
+    titleEl.appendChild(document.createTextNode(s.title||s.id));
+    info.appendChild(titleEl);
+    // 副标题：有任务 = 任务状态+进度（运行中/完成/已停止/失败），无任务 = 创建时间
+    const tinfo = taskBySess[s.id];
+    let sub, subCls = 'm', pbarPct = null;
+    if (tinfo){
+      if (tinfo.status === 'running'){
+        const tot = tinfo.modules_total||0, dn = tinfo.modules_done||0;
+        sub = `运行中 · ${dn}/${tot} 模块 · ${tinfo.findings||0} 发现`;
+        subCls = 'm taskrun';
+        if (tot) pbarPct = Math.min(96, Math.round(dn/tot*100));
+      } else {
+        const smap = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
+        sub = `${smap[tinfo.status]||tinfo.status} · ${tinfo.findings||0} 发现`;
+        subCls = 'm taskdone ' + ((tinfo.status==='done'||tinfo.status==='cancelled') ? 'ok' : 'bad');
+      }
+    } else {
+      sub = new Date(s.created_at).toLocaleString();
+    }
+    info.appendChild(el('div', subCls, sub));
+    d.appendChild(info);
+    if (pbarPct!=null){ const pb = el('div','pbar'); pb.style.width = pbarPct+'%'; d.appendChild(pb); }
+    const acts = el('div','acts');
+    const rn = el('button','ibtn', '✎'); rn.title='重命名';
+    rn.onclick = e=>{ e.stopPropagation(); startRename(d, s); };
+    const del = el('button','ibtn del', '×');
+    if (runningTasks[s.id]){ del.disabled=true; del.title='任务运行中，不可删除'; } else { del.title='删除'; }
+    del.onclick = e=>{
+      e.stopPropagation();
+      if (del.classList.contains('armed')){
+        api(`/api/sessions/${s.id}`,{method:'DELETE'}).then(()=>{
+          if (s.id===curSid){ curSid=null; $('#msgs').innerHTML=''; clearStream(); }
+          selectedSids.delete(s.id);
+          delete runningTasks[s.id];
+          refreshSessions();
+        }).catch(err=>toast('删除失败: '+err.message));
+      } else {
+        del.classList.add('armed'); del.textContent='确认?';
+        setTimeout(()=>{ del.classList.remove('armed'); del.textContent='×'; }, 2600);
+      }
+    };
+    acts.append(rn, del);
+    d.appendChild(acts);
+    d.onclick = ()=> openSession(s.id);
+    box.appendChild(d);
+  });
+  updateBulkBtn();
+  syncSelectAll();
+}
+function syncSelectAll(){
+  const box = $('#sessionList');
+  const allCk = [...box.querySelectorAll('.sess .ck')];
+  const allChecked = allCk.length>0 && allCk.every(c=>c.checked);
+  $('#selectAll').checked = allChecked;
+  $('#selectAll').indeterminate = !allChecked && allCk.some(c=>c.checked);
+}
+$('#selectAll').onchange = function(){
+  const box = $('#sessionList');
+  box.querySelectorAll('.sess').forEach(n=>{
+    const sid = n.dataset.sid; const ck = n.querySelector('.ck');
+    if (this.checked){ selectedSids.add(sid); ck.checked=true; n.classList.add('selected'); }
+    else { selectedSids.delete(sid); ck.checked=false; n.classList.remove('selected'); }
+  });
+  updateBulkBtn();
+};
+$('#bulkDelBtn').onclick = function(){
+  if (selectedSids.size===0) return;
+  const btn = this;
+  if (btn.classList.contains('armed')){
+    api('/api/sessions/bulk-delete',{method:'POST',json:{ids:[...selectedSids]}}).then(r=>{
+      if (curSid && selectedSids.has(curSid)){ curSid=null; $('#msgs').innerHTML=''; clearStream(); }
+      selectedSids.forEach(id=>delete runningTasks[id]);
+      selectedSids.clear();
+      toast(`已删除 ${r.deleted} 个会话` + (r.skipped ? `（跳过 ${r.skipped} 个运行中）` : ''));
+      refreshSessions();
+    }).catch(err=>{ toast('批量删除失败: '+err.message); btn.classList.remove('armed'); });
+  } else {
+    btn.classList.add('armed');
+    btn.textContent = `确认删除 ${selectedSids.size} 个?`;
+    setTimeout(()=>{ if(btn.isConnected){ btn.classList.remove('armed'); updateBulkBtn(); } }, 3000);
+  }
+};
+function startRename(sessEl, s){
+  const titleEl = sessEl.querySelector('.t');
+  const input = document.createElement('input');
+  input.className='rename-input';
+  input.value = s.title||'';
+  titleEl.replaceWith(input);
+  input.focus(); input.select();
+  let done=false;
+  const commit = async ()=>{
+    if (done) return; done=true;
+    const v=input.value.trim();
+    if (v && v!==s.title){
+      try { await api(`/api/sessions/${s.id}`,{method:'PATCH',json:{title:v}}); }
+      catch(e){ toast('重命名失败: '+e.message); }
+    }
+    refreshSessions();
+  };
+  input.onblur = commit;
+  input.onkeydown = e=>{
+    e.stopPropagation();
+    if (e.key==='Enter') commit();
+    if (e.key==='Escape'){ done=true; refreshSessions(); }
+  };
+}
+$('#sessSearch').oninput = ()=> refreshSessions();
+
+  async function openSession(sid){
+    curSid = sid;
+    const msgs=$('#msgs'); msgs.innerHTML='';
+    try {
+      const ms = await api(`/api/sessions/${sid}/messages`);
+      if (!ms.length) msgs.appendChild(emptyState());
+      ms.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
+      await renderTaskArtifacts(msgs, sid);
+      scrollBottom(true);
+    } catch(e){ msgs.appendChild(renderMsg('sys', '加载会话失败: '+e.message)); }
+   const rt = runningTasks[sid];
+   if (curTaskId && (sid===curSid || rt===curTaskId)){
+     // 该会话的任务正是当前活动任务：重建执行卡（流保持，不重连）
+     createLiveCard(curTaskId);
+   } else if (rt && !curTaskId){
+     // 该会话有进行中任务且当前无活动流：接流
+     createLiveCard(rt);
+     startStream(rt, sid);
+   }
+   refreshSessions();
+   // 从任务记录恢复目标，历史会话目标不可修改
+   const task = taskBySess[sid];
+   if (task && task.target) {
+     $('#targetInput').value = task.target;
+     $('#targetInput').disabled = true;
+     $('#targetInput').placeholder = task.target;
+   } else {
+     $('#targetInput').value = '';
+     $('#targetInput').disabled = false;
+     $('#targetInput').placeholder = 'http://<target-ip>  或留空（未知靶场先侦察）';
+   }
+ }
+
+/* 报告/日志中心：任务结束后从会话内随时可取（刷新/重开不丢） */
+async function renderTaskArtifacts(msgs, sid){
+  try {
+    const tasks = (await api('/api/tasks')).filter(t=>t.session_id===sid && t.status!=='running');
+    if (!tasks.length) return;
+    const smap = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
+    const box = el('div','msg assistant report-msg');
+    const h = el('div','rep-head');
+    h.appendChild(el('span','status-pill st-done', `任务记录 · ${tasks.length}`));
+    box.appendChild(h);
+    const shown = tasks.slice(0,5);
+    const boards = await Promise.all(shown.map(async t=>{
+      try { const b = await api(`/api/task/${t.task_id}/board`); return (b&&b.findings)||[]; } catch(e){ return null; }
+    }));
+    shown.forEach((t,i)=>{
+      const row = el('div','artifact-row');
+      row.appendChild(el('span','artifact-id', t.task_id));
+      row.appendChild(el('span','artifact-stat', `${smap[t.status]||t.status} · ${t.findings||0} 发现`));
+      const sumParts = [fmtDur(t.created_at, t.updated_at), boards[i] ? findingsSummary(boards[i]) : ''].filter(Boolean);
+      if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
+      const rb = el('button','tbtn','⬇ 报告');
+      rb.onclick = async ()=>{
+        try {
+          const rep = await api(`/api/task/${t.task_id}/report`);
+          if (rep && rep.report_md) downloadReport(t.task_id, rep.report_md);
+          else toast('该任务无报告（无 findings）');
+        } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
+      };
+      const lb = el('button','tbtn','⬇ 日志');
+      lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
+      row.append(rb, lb);
+      box.appendChild(row);
+    });
+    const live = msgs.querySelector('.livecard');
+    if (live) msgs.insertBefore(box, live); else msgs.appendChild(box);
+  } catch(e){}
+}
+
+ async function newSession(){
+   if (curTaskId){
+     // 有任务在跑：保留后台流（不停），仅切到新会话视图；回旧会话可重连
+     toast('有任务在后台执行，回到该会话可看实时进度');
+   } else {
+     clearStream();
+   }
+   $('#targetInput').value=''; curTargetId='';
+   $('#targetInput').disabled = false;
+   $('#targetInput').placeholder = 'http://<target-ip>  或留空（未知靶场先侦察）';
+   try {
+    const d = await api('/api/sessions',{method:'POST',json:{}});
+    curSid = d.id;
+  } catch(e){ toast('新建会话失败: '+e.message); return; }
+  $('#msgs').innerHTML='';
+  $('#msgs').appendChild(emptyState());
+  refreshSessions();
+}
+
+/* ---------- 空态 + 已知靶场快捷启动 ---------- */
+function emptyState(){
+  const box = el('div','empty');
+  box.id = 'empty';
+  box.appendChild(el('div','empty-title','输入渗透任务并发送，或选一个已知靶场直接开打：'));
+  const chips = el('div','chips');
+  if (knownTargets.length){
+    knownTargets.forEach(t=>{
+      const c = el('button','chip','▶ '+t.name);
+      if (t.addr) c.appendChild(el('small', t.addr.replace(/^https?:\/\//,'')));
+      c.onclick = ()=> quickStart(t);
+      chips.appendChild(c);
+    });
+  } else {
+    chips.appendChild(el('span','muted','（暂无已知靶场档案；首次打新靶场会先侦察并自动建档）'));
+  }
+  box.appendChild(chips);
+  return box;
+}
+async function quickStart(t){
+  if (curTaskId){ toast('当前有任务在跑，等完成或先停止'); return; }
+  $('#targetInput').value = t.addr || '';
+  curTargetId = t.id;
+  $('#taskInput').value = `打 ${t.name} 靶场，全面渗透，覆盖所有模块，每模块一条干净 PoC 就下一个，别过度验证`;
+  await sendTask();
+}
+
+/* ---------- 模型 / 已知靶场 ---------- */
+async function refreshModels(){
+  let m;
+  try { m = await api('/api/models'); } catch(e){ m={default_priority:MODEL_PRIORITY_DEFAULT, auth_enabled:false}; }
+  authEnabled = !!m.auth_enabled;
+  const sel = $('#modelSelect'); sel.innerHTML='';
+  const list = m.default_priority && m.default_priority.length ? m.default_priority : MODEL_PRIORITY_DEFAULT;
+  list.forEach(mm=>{ const o=el('option','',mm); o.value=mm; if(mm===(m.override||''))o.selected=true; sel.appendChild(o); });
+  /* 高级参数里的"本任务模型"下拉：同队列，留空=全局自动 */
+  const pm=$('#pModel'); if(pm){ const _keep=pm.value; pm.innerHTML='';
+    const _o0=el('option','','全局自动（跟随优先级队列）'); _o0.value=''; pm.appendChild(_o0);
+    list.forEach(mm=>{ const o=el('option','',mm); o.value=mm; pm.appendChild(o); });
+    pm.value=_keep||''; }
+  if (m.override && list.indexOf(m.override)<0){ const o=el('option','',m.override+' (手动)'); o.value=m.override; o.selected=true; sel.appendChild(o); }
+  const auto=el('option','','自动'); auto.value=''; if(!m.override)auto.selected=true; sel.prepend(auto);
+  $('#modelFooter').textContent = '模型优先级: ' + (m.effective_priority||m.default_priority||[]).join(' · ');
+  updateAuthUI();
+}
+$('#modelSelect').addEventListener('change', async e=>{
+  const v = e.target.value;
+  try {
+    const r = await api('/api/models/override',{method:'POST',json:{model:v}});
+    $('#modelFooter').textContent = '模型优先级: ' + (r.effective_priority||[]).join(' · ');
+    toast(v ? '已全局切换到 '+v+'（重启后重置）' : '已恢复自动路由');
+  } catch(err){ toast('模型切换失败: '+err.message); refreshModels(); }
+});
+
+async function refreshTargets(){
+  try {
+    const list = await api('/api/targets');
+    knownTargets.length = 0;
+    knownTargets.push(...list);
+    const dl = $('#targetOptions'); dl.innerHTML='';
+    list.forEach(t=>{
+      const o=document.createElement('option');
+      o.value = t.addr || t.id;
+      o.label = t.name;
+      dl.appendChild(o);
+    });
+  } catch(e){}
+}
+$('#targetInput').addEventListener('change', ()=>{
+  const v = $('#targetInput').value.trim();
+  const hit = knownTargets.find(t=>t.addr && (t.addr===v || v.startsWith(t.addr)));
+  curTargetId = hit ? hit.id : guessTargetId(v);
+});
+
+/* ---------- 认证 UI ---------- */
+function updateAuthUI(){
+  $('#loginBtn').style.display = authEnabled?'':'none';
+  $('#tokenInput').style.display = authEnabled?'':'none';
+  $('#userBadge').textContent = authEnabled ? (authed?'已登录':'未登录') : '内网模式';
+}
+async function doLogin(){
+  try {
+    const d = await api('/api/login', {method:'POST', json:{token:$('#tokenInput').value}});
+    sessionToken = d.session_token; localStorage.setItem('pimeta_token', sessionToken);
+    authed = true; updateAuthUI(); toast('登录成功');
+  } catch(e){ authed=false; toast('登录失败: '+e.message); }
+}
+$('#loginBtn').onclick = doLogin;
+
+/* ---------- 执行过程卡片（按模块分组 + 漏洞板区）---------- */
+const PHASES = ['pre-recon','recon','root-decide','exploit','report'];
+let boardTimer = null;
+function createLiveCard(taskId){
+  if (liveState && liveState.card.parentNode) liveState.card.remove();
+  const card = el('div','livecard');
+  const head = el('div','lc-head');
+  const dot = el('span','lc-dot');
+  const statusEl = el('span','lc-status st-running','运行中');
+  head.append(dot, el('span','lc-title','执行过程'),
+               el('span','lc-agent','RedBee 自研 agent'), statusEl);
+  const stepper = el('div','lc-stepper');
+  PHASES.forEach((p,i)=>{
+    if (i>0) stepper.appendChild(el('span','ph-sep','›'));
+    stepper.appendChild(el('span','ph', p));
+  });
+  const meta = el('span','lc-meta','');
+  const followBtn = el('button','tbtn lc-follow','跟随 ✓');
+  followBtn.onclick = ()=>{ setFollow(!follow); if (follow) scrollBottom(true); };
+  head.append(stepper, meta, followBtn);
+  // 模块地图（六色状态：wait/run/ok/none/fail/skip；结束后定格=漏洞地图）
+  const mapEl = el('div','lc-map');
+  const modsEl = el('div','lc-modules');
+  // 漏洞板区（实时轮询 /board；结束后保留 = 最终成果板；点行展开 PoC/证据）
+  const boardHead = el('div','lb-head');
+  boardHead.appendChild(el('span','lb-title','🛡 漏洞板'));
+  const boardCount = el('span','lb-count','');
+  boardHead.appendChild(boardCount);
+  const boardRepBtn = el('button','tbtn lb-rep','当前报告 ⬇');
+  boardRepBtn.style.display='none';
+  boardRepBtn.onclick = async ()=>{
+    boardRepBtn.disabled = true;
+    try {
+      const rep = await api(`/api/task/${taskId}/report`);
+      if (rep && rep.report_md) downloadReport(taskId, rep.report_md);
+      else toast('暂无报告数据');
+    } catch(e){ toast('获取报告失败: '+e.message); }
+    finally { boardRepBtn.disabled = false; }
+  };
+  boardHead.appendChild(boardRepBtn);
+  const boardLogBtn = el('button','tbtn lb-log','执行日志 ⬇');
+  boardLogBtn.title = '下载完整执行日志（派发/相位/LLM/工具/发现/失败/指令/停止）';
+  boardLogBtn.onclick = ()=>{ location.href = `/api/task/${taskId}/log/download`; };
+  boardHead.appendChild(boardLogBtn);
+  const boardEl = el('div','lb-list');
+  boardEl.appendChild(el('div','lb-empty','暂无发现'));
+  const boardWrap = el('div','lc-board');
+  boardWrap.append(boardHead, boardEl);
+  card.append(head, mapEl, modsEl, boardWrap);
+  $('#msgs').appendChild(card);
+  liveState = {card, dot, statusEl, meta, followBtn, modsEl, mapEl, stepper,
+                boardEl, boardCount, boardRepBtn, boardLogBtn,
+                mods:{}, lastSnap:{}, calls:0, taskId, phase:'', seenMods:{}, doneMods:{},
+                mpChips:{}, modFind:{}, finalized:false,
+                lastActivity: Date.now(), start: Date.now()};
+  startBoardPoll();
+  prefillMap(taskId);
+  scrollBottom(true);
+}
+
+/* ---- 漏洞板轮询（5s；卡片移除/任务结束自动停；兼做完成检测——SSE 断了也能收口）---- */
+const TERMINAL_STATUS = new Set(['done','cancelled','runtime_error','extraction_error','interrupted']);
+function startBoardPoll(){
+  if (boardTimer) clearInterval(boardTimer);
+  const poll = async ()=>{
+    const ls = liveState;
+    if (!ls || !ls.card.isConnected){ stopBoardPoll(); return; }
+    // 周期性状态提示：每 5s 刷新 meta（即使无新 SSE 事件）
+    updLiveHeartbeat();
+    try {
+      const b = await api(`/api/task/${ls.taskId}/board`);
+      if (liveState !== ls) return;
+      renderBoard(ls, (b && b.findings) || []);
+      if (b.status && TERMINAL_STATUS.has(b.status) && !ls.finalized && curTaskId === ls.taskId){
+        ls.finalized = true;
+        onTaskDone(b.status === 'done' ? 'done' : (b.status === 'cancelled' ? 'cancelled' : 'error'));
+      }
+    } catch(e){}
+  };
+  poll();
+  boardTimer = setInterval(poll, 5000);
+}
+function stopBoardPoll(){
+  if (boardTimer){ clearInterval(boardTimer); boardTimer = null; }
+}
+function renderBoard(ls, findings){
+  const list = el('div','lb-list');
+  const valid = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  ls.boardCount.textContent = valid.length ? valid.length+' 条' : '';
+  ls.boardRepBtn.style.display = findings.length ? '' : 'none';
+  const sorted = [...findings].sort((a,b)=>
+    ((SEV_RANK[a.severity]??9)-(SEV_RANK[b.severity]??9)) || (a.id-b.id));
+  if (!sorted.length){ list.appendChild(el('div','lb-empty','暂无发现')); }
+  sorted.forEach(f=>{
+    const fp = String(f.status||'found').toLowerCase()==='false_positive';
+    const row = el('div','lb-row'+(fp?' lb-fp':''));
+    row.append(el('span','sev sev-'+(f.severity||'info'), f.severity||'info'));
+    row.appendChild(el('span','f-title', f.title||'(无标题)'));
+    if (f.location) row.appendChild(el('span','lb-loc', f.location));
+    row.appendChild(el('span','f-status st-'+(f.status||'found'), f.status||'found'));
+    const det = el('div','lb-detail');
+    det.style.display='none';
+    if (f.poc){ det.appendChild(el('h5','PoC')); det.appendChild(Object.assign(el('pre'),{textContent:f.poc})); }
+    if (f.evidence){ det.appendChild(el('h5','证据')); det.appendChild(Object.assign(el('pre'),{textContent:f.evidence})); }
+    if (!f.poc && !f.evidence) det.appendChild(el('span','lb-empty','无 PoC/证据'));
+    row.onclick = ()=>{ det.style.display = det.style.display==='none'?'block':'none'; };
+    list.appendChild(row); list.appendChild(det);
+  });
+  ls.boardEl.replaceWith(list);
+  ls.boardEl = list;
+}
+
+function updStepper(){
+  const ls = liveState; if(!ls || !ls.stepper) return;
+  let idx = PHASES.indexOf(ls.phase);
+  if (ls.phase==='coverage-gap') idx = PHASES.indexOf('exploit');
+  const done = Object.keys(ls.doneMods).length;
+  const total = Object.keys(ls.mpChips).length;
+  ls.stepper.querySelectorAll('.ph').forEach((st,i)=>{
+    st.className = 'ph' + (idx>=0 && i<idx ? ' done' : (idx>=0 && i===idx ? ' cur' : ''));
+    st.textContent = (st.textContent.split(' ')[0]);
+    if (st.textContent==='exploit' && idx===PHASES.indexOf('exploit') && total)
+      st.textContent = `exploit ${done}/${total}`;
+  });
+}
+
+function ensureMod(name){
+  const ls = liveState;
+  if (ls.mods[name]) return ls.mods[name];
+  const wrap = el('div','lc-mod');
+  const h = el('div','lc-mod-head');
+  const dot = el('span','mod-dot');
+  const stateEl = el('span','mod-state','运行中');
+  const callsEl = el('span','mod-calls','0 次');
+  h.append(dot, el('span','mod-name', name), el('span','mod-agent','子agent'),
+           stateEl, callsEl, el('span','chev','▾'));
+  const body = el('div','lc-mod-body');
+  wrap.append(h, body);
+  h.onclick = ()=> wrap.classList.toggle('collapsed');
+  ls.modsEl.appendChild(wrap);
+  const m = {name, wrap, dot, stateEl, callsEl, body, entries:0};
+  ls.mods[name] = m;
+  return m;
+}
+
+/* ---- 模块地图（chip 六态）---- */
+function mpChip(name){
+  const ls = liveState;
+  let c = ls.mpChips[name];
+  if (c) return c;
+  c = el('button','mp mp-wait');
+  c.appendChild(el('i'));
+  c.appendChild(document.createTextNode(name));
+  c.onclick = ()=>{
+    const m = ls.mods[name];
+    if (m){ m.wrap.classList.remove('collapsed'); m.wrap.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+  };
+  ls.mapEl.appendChild(c);
+  ls.mpChips[name] = c;
+  return c;
+}
+function mpSet(name, state, extra, tip){
+  const ls = liveState; if(!ls || !ls.mapEl || !ls.mapEl.isConnected) return;
+  const c = mpChip(name);
+  c.className = 'mp mp-' + state;
+  c.textContent = '';
+  c.appendChild(el('i'));
+  c.appendChild(document.createTextNode(extra ? name + ' ' + extra : name));
+  c.title = tip || (name + '（点击定位模块）');
+}
+/* 卡片创建后拉任务元数据，把全部候选模块预置为"待启动"（刷新恢复/派发竞态兜底） */
+async function prefillMap(taskId){
+  try {
+    const tasks = await api('/api/tasks');
+    const t = (tasks||[]).find(x=>x.task_id===taskId);
+    if (!t || !liveState || liveState.taskId!==taskId || liveState.finalized) return;
+    (t.assigned_modules||[]).forEach(m=>mpSet(m,'wait'));
+  } catch(e){}
+}
+
+function addToolResult(s){
+  const ls = liveState; if(!ls) return;
+  const m = ensureMod(s.module || s.label || 'main');
+  const entry = el('div','lc-entry');
+  entry.append(el('span','e-time', nowStr()), el('span','e-tool', s.tool||'?'));
+  const first = String(s.result||'').split('\n')[0].trim().slice(0,150);
+  entry.appendChild(el('span','e-brief', first || '(空输出)'));
+  const full = el('pre','e-full');
+  full.textContent = String(s.result||'');
+  full.style.display='none';
+  entry.onclick = ()=>{ full.style.display = full.style.display==='none'?'block':'none'; };
+  m.body.appendChild(entry);
+  m.body.appendChild(full);
+  m.entries++; ls.calls++;
+  m.callsEl.textContent = m.entries+' 次';
+  m.stateEl.textContent = '最近: '+(s.tool||'');
+  while (m.body.children.length > 400){ m.body.removeChild(m.body.firstChild); m.body.removeChild(m.body.firstChild); }
+  updCardMeta();
+  scrollBottom();
+}
+
+function updCardMeta(){
+  const ls = liveState; if(!ls) return;
+  const seen = Object.keys(ls.seenMods).length;
+  const done = Object.keys(ls.doneMods).length;
+  let t = '';
+  if (seen) t += done + '/' + seen + ' 模块';
+  if (ls.calls) t += (t ? ' · ' : '') + ls.calls + ' 次调用';
+  ls.meta.textContent = t;
+}
+
+// 周期性心跳状态提示：每 5s 由 startBoardPoll 的轮询调用。
+// 即使 SSE 没有新事件(LLM 思考期间)，也让用户看到"任务还活着 + 距上次活动多久"，
+// 不会误以为卡死。
+function updLiveHeartbeat(){
+  const ls = liveState; if (!ls) return;
+  const now = Date.now();
+  const seen = Object.keys(ls.seenMods).length;
+  const done = Object.keys(ls.doneMods).length;
+  const parts = [];
+  if (seen) parts.push(done + '/' + seen + ' 模块');
+  if (ls.calls) parts.push(ls.calls + ' 次调用');
+  if (ls.phase) parts.push(ls.phase);
+  const mins = ls.start ? Math.floor((now - ls.start)/60000) : 0;
+  if (mins >= 1) parts.push('已运行 ' + mins + 'min');
+  else if (seen || ls.calls) parts.push('运行中');
+  const idle = Math.max(0, Math.round((now - ls.lastActivity)/1000));
+  if (idle < 90) parts.push('上次活动 ' + idle + 's 前');
+  else parts.push('LLM 思考中…已等待 ' + Math.floor(idle/60) + 'min');
+  ls.meta.textContent = parts.join(' · ');
+}
+
+function onLive(d){
+  const ls = liveState; if(!ls) return;
+  // 任何 live(tool) 事件都刷新活动时间，供周期性心跳提示用
+  ls.lastActivity = Date.now();
+  for (const k of Object.keys(d.slots||{})){
+    const s = d.slots[k];
+    const sig = [s.tool||'', s.result==null?'':String(s.result).slice(0,400), s.last_message||'',
+                 s.msg_count==null?'':s.msg_count, s.last_type||'', s.phase||''].join('\u0001');
+    if (ls.lastSnap[k] === sig) continue;
+    ls.lastSnap[k] = sig;
+    if (s.phase) ls.phase = s.phase;
+    const lt = s.last_type||'';
+    const modName = s.module || 'main';
+    if (s.module) ls.seenMods[s.module] = true;   // 任何带 module 的事件都计入（module_start 可能早于连接）
+    if (lt==='module_start'){
+      ensureMod(modName);
+      mpSet(modName,'run');
+    } else if (lt==='module_done'){
+      const m = ensureMod(modName);
+      m.dot.className='mod-dot done';
+      m.stateEl.textContent = (s.last_message||'完成').replace(/^\[[^\]]*\]\s*/,'');
+      ls.doneMods[modName] = true;
+      const nf = ls.modFind[modName]||0;
+      mpSet(modName, nf?'ok':'none', nf?nf:'0');
+    } else if (lt==='module_fail'){
+      const m = ensureMod(modName);
+      m.dot.className='mod-dot dead';
+      m.stateEl.textContent = (s.last_message||'失败').replace(/^\[[^\]]*\]\s*/,'');
+      ls.doneMods[modName] = true;
+      mpSet(modName,'fail','✕', (s.last_message||'失败'));
+    } else if (lt==='result' && s.tool){
+      if (s.tool==='submit_finding' && s.module && String(s.result||'').includes('"accepted": true'))
+        ls.modFind[s.module] = (ls.modFind[s.module]||0)+1;
+      addToolResult(s);
+    } else if (s.tool){
+      const m = ensureMod(modName);
+      m.stateEl.textContent = '执行中: '+s.tool+' …';
+      if (ls.mpChips[modName] && !ls.doneMods[modName])
+        mpSet(modName,'run', s.msg_count ? s.msg_count+'t' : '');
+    } else if (s.last_message){
+      scrollBottom();
+    }
+    updStepper();
+    updCardMeta();
+  }
+}
+
+function finalizeCard(status){
+  const ls = liveState; if(!ls) return;
+  const done = status==='done', cancelled = status==='cancelled';
+  ls.statusEl.textContent = done?'完成':(cancelled?'已停止':'失败');
+  ls.statusEl.className = 'lc-status ' + (done?'st-done':(cancelled?'st-cancel':'st-error'));
+  ls.dot.className = 'lc-dot ' + (done?'done':'dead');
+  Object.values(ls.mods).forEach(m=>{
+    if (!m.dot.classList.contains('done')) m.dot.className='mod-dot '+(done?'done':'dead');
+    m.wrap.classList.add('collapsed');
+  });
+  // 模块地图定格：未启动 = 跳过；运行中被停止 = 无发现（灰色）
+  Object.keys(ls.mpChips).forEach(n=>{
+    const c = ls.mpChips[n];
+    if (c.className.includes('mp-wait')) mpSet(n,'skip');
+    else if (c.className.includes('mp-run')) mpSet(n,'none','0');
+  });
+  updCardMeta();
+  scrollBottom(true);
+}
+
+/* ---------- SSE 流 ---------- */
+const sessTitles = {};  // sid -> title（停止按钮 tooltip 用）
+function updateSendBtn(){
+  const b = $('#sendBtn');
+  if (curTaskId){
+    const tname = (taskSid && sessTitles[taskSid]) || curTaskId;
+    b.textContent='■ 停止'; b.classList.add('stopping');
+    b.title='停止任务: ' + tname + '（cancel 子任务 + 杀沙箱容器）';
+  }
+  else { b.textContent='发送'; b.classList.remove('stopping'); b.title='发送渗透任务'; }
+}
+function clearStream(){
+  if (eventSource){ eventSource.close(); eventSource=null; }
+  stopBoardPoll();
+  curTaskId=null; taskSid=null; finalStatus=null;
+  liveState=null;
+  updateSendBtn();
+}
+function startStream(taskId, sid){
+  curTaskId = taskId; taskSid = sid || curSid; finalStatus = null;
+  updateSendBtn();
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource(`/api/task/${taskId}/stream`);
+  eventSource.onmessage = (ev)=>{
+    let d; try{ d=JSON.parse(ev.data); }catch(e){ return; }
+    if (d.type==='live'){ onLive(d); }
+    else if (d.type==='final'){ finalStatus = d.status; }
+    else if (d.type==='done'){ onTaskDone(finalStatus || 'done'); }
+  };
+  eventSource.onerror = ()=>{ /* EventSource 自动重连；keepalive 保活 */ };
+}
+
+function downloadReport(taskId, md){
+  const blob = new Blob([md], {type:'text/markdown;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'pentest_report_'+taskId+'.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast('报告已开始下载');
+}
+
+function notify(title, body){
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try { new Notification(title, {body}); } catch(e){}
+}
+
+/* ---------- 任务收口摘要（时长/发现/终止原因） ---------- */
+function fmtDur(created, updated){
+  try {
+    const ms = new Date(updated) - new Date(created);
+    if (!(ms >= 0)) return '';
+    const m = Math.floor(ms/60000);
+    if (m < 1) return '<1min';
+    if (m < 60) return m+'min';
+    return Math.floor(m/60)+'h '+(m%60)+'min';
+  } catch(e){ return ''; }
+}
+function findingsSummary(findings){
+  const valid = (findings||[]).filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  if (!valid.length) return '无有效发现';
+  const sev = {critical:0, high:0, medium:0, low:0, info:0};
+  const cls = [];
+  valid.forEach(f=>{
+    const s = String(f.severity||'info').toLowerCase();
+    if (sev[s]!=null) sev[s]++;
+    if (f.vuln_class && cls.indexOf(f.vuln_class)<0) cls.push(f.vuln_class);
+  });
+  const parts = [];
+  ['critical','high','medium','low','info'].forEach(k=>{ if (sev[k]) parts.push(k+' '+sev[k]); });
+  let s = valid.length+' 条有效发现';
+  if (parts.length) s += '（'+parts.join(' / ')+'）';
+  const confirmed = valid.filter(f=>String(f.status||'').toLowerCase()==='confirmed').length;
+  if (confirmed) s += ' · confirmed '+confirmed;
+  if (cls.length) s += ' · '+cls.length+' 类漏洞（'+cls.slice(0,6).join('/')+(cls.length>6?'…':'')+'）';
+  return s;
+}
+const STATUS_TAIL = {done:'自然完成', cancelled:'用户终止（保留部分成果）', interrupted:'网关重启中断', runtime_error:'模型失败', extraction_error:'findings 解析失败'};
+function statusTail(status, meta){
+  let s = STATUS_TAIL[status] || status;
+  if (status==='runtime_error' && meta && meta.runtime_error_summary) s += '：'+String(meta.runtime_error_summary).slice(0,80);
+  return s;
+}
+
+async function onTaskDone(status){
+  const taskId = curTaskId;
+  const sid = taskSid;
+  if (!taskId) return;
+  if (eventSource){ eventSource.close(); eventSource=null; }
+  curTaskId=null; taskSid=null;
+  updateSendBtn();
+  finalizeCard(status);
+  // 漏洞板定格（卡片结束后保留 = 最终成果板）
+  let boardFindings = [];
+  try { const b = await api(`/api/task/${taskId}/board`); boardFindings = (b&&b.findings)||[]; } catch(e){}
+  if (liveState && liveState.boardEl){
+    renderBoard(liveState, boardFindings);
+    stopBoardPoll();
+  }
+  const fcount = boardFindings.length;
+  let meta=null;
+  try { meta = await api(`/api/task/${taskId}/meta`); } catch(e){}
+  const dur = meta ? fmtDur(meta.created_at, meta.updated_at) : '';
+  const stText = status==='done'?'完成':(status==='cancelled'?'已停止':'失败');
+  notify(`渗透任务${stText}`, `${taskId} · ${fcount} 条发现${dur?' · '+dur:''}`);
+  toast(`任务${stText}：${fcount} 条发现` + (dur ? ' · '+dur : ''));
+  if (sid) delete runningTasks[sid];
+  // 完成消息只在"当前正看任务所属会话"时贴进对话；否则服务端已存库，重开会话可见
+  if (sid && sid!==curSid){ refreshSessions(); return; }
+  const box = el('div','msg assistant report-msg');
+  let rep=null;
+  try { await new Promise(r=>setTimeout(r,400)); rep = await api(`/api/task/${taskId}/report`); } catch(e){}
+  const headRow = el('div','rep-head');
+  headRow.appendChild(el('span','status-pill st-'+(status==='done'?'done':status==='cancelled'?'cancel':'error'),
+      (status==='done'?'任务完成':status==='cancelled'?'任务已停止':'任务失败') + ' · ' + taskId));
+  if (rep && rep.report_md){
+    const dl = el('button','tbtn rep-dl','⬇ 下载报告 (.md)');
+    dl.onclick = ()=> downloadReport(taskId, rep.report_md);
+    headRow.appendChild(dl);
+  }
+  const dlLog = el('button','tbtn rep-dl','⬇ 执行日志 (.txt)');
+  dlLog.onclick = ()=> location.href = `/api/task/${taskId}/log/download`;
+  headRow.appendChild(dlLog);
+  box.appendChild(headRow);
+  const valid = ((rep && rep.raw_findings)||[]).filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  box.appendChild(el('div','meta-line', valid.length
+      ? valid.length+' 条有效发现（详见上方执行卡的漏洞板）' : '无有效发现'));
+  const sumLine = [dur, findingsSummary(boardFindings), statusTail(status, meta)].filter(Boolean).join(' · ');
+  if (sumLine) box.appendChild(el('div','meta-line', sumLine));
+  $('#msgs').appendChild(box);
+  scrollBottom(true);
+  refreshSessions();
+}
+
+async function stopTask(){
+  if (!curTaskId) return;
+  const btn=$('#sendBtn');
+  btn.disabled=true; btn.textContent='停止中…';
+  try {
+    const r = await api(`/api/task/${curTaskId}/cancel`,{method:'POST',json:{}});
+    toast(`已下发停止：cancel ${r.cancelled} 个子任务，杀 ${r.containers_killed} 个沙箱`);
+    // 等流 done 事件 → onTaskDone 复位按钮
+  } catch(e){
+    toast('停止失败: '+e.message);
+    btn.disabled=false; updateSendBtn();
+  }
+}
+
+/* ---------- 派发 ---------- */
+function guessTargetId(t){
+  const m=(t||'').match(/(\d+\.\d+\.\d+\.\d+)/)||(t||'').match(/([a-z0-9]+)/i);
+  return m?m[1]:'';
+}
+
+async function sendTask(){
+  const task = $('#taskInput').value.trim();
+  if(!task){ toast('请输入任务描述'); return; }
+  if (curTaskId){ sendSteer(); return; }
+  if(!sessionToken && authEnabled){ toast('请先登录'); return; }
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  if(!curSid){
+    try { const d=await api('/api/sessions',{method:'POST',json:{}}); curSid=d.id; }
+    catch(e){ toast('创建会话失败: '+e.message); return; }
+  }
+  const target = $('#targetInput').value.trim();
+  const body = {session_id:curSid, task, target};
+  if (target){
+    const hit = knownTargets.find(t=>t.addr && (t.addr===target || target.startsWith(t.addr)));
+    body.target_id = hit ? hit.id : guessTargetId(target);
+  }
+  /* 高级参数（仅本任务）：留空不传 = 跟随全局/配方 */
+  const params = {};
+  const _num = (sel, key) => { const v = $(sel).value.trim(); if (v) params[key] = parseInt(v, 10); };
+  _num('#pMaxParallel', 'max_parallel');
+  _num('#pMaxModules', 'max_modules');
+  _num('#pChildTurns', 'child_max_turns');
+  _num('#pTaskBudget', 'task_budget');
+  _num('#pRetryDelay', 'module_retry_delay');
+  if ($('#pSkipRecon').checked) params.skip_recon = true;
+  if ($('#pForceAll').checked) params.force_all_modules = true;
+  const _pm = $('#pModel').value; if (_pm) params.model = _pm;
+  if (Object.keys(params).length) body.params = params;
+  $('#msgs').appendChild(renderMsg('user', task + (target? ('\n目标: '+target):'')));
+  $('#taskInput').value='';
+  const _ta=$('#taskInput'); _ta.style.height='auto'; _ta.style.height='52px';
+  $('#sendBtn').disabled=true;
+  try {
+    const d = await api('/api/task',{method:'POST',json:body});
+    $('#msgs').appendChild(renderMsg('assistant','任务已分发后台执行…',{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(' 参数:'+JSON.stringify(d.params)):''), status:'running'}));
+    if (d.param_warnings && d.param_warnings.length) toast('参数剔除: '+d.param_warnings.join('; '));
+    ['#pMaxParallel','#pMaxModules','#pChildTurns','#pTaskBudget','#pRetryDelay'].forEach(s=>$(s).value='');
+    $('#pSkipRecon').checked=false; $('#pForceAll').checked=false; $('#pModel').value='';
+    $('#advParams').open=false;
+    runningTasks[curSid] = d.task_id; // 运行点 + 切会话后可重连
+    if (target){ $('#targetInput').value = target; $('#targetInput').disabled = true; $('#targetInput').placeholder = target; }
+    createLiveCard(d.task_id);
+    startStream(d.task_id, curSid);
+    refreshSessions();
+  } catch(e){
+    updateSendBtn();
+    $('#sendBtn').disabled=false;
+    $('#msgs').appendChild(renderMsg('error','派发失败: '+e.message));
+  }
+}
+
+/* 执行中发消息 = 飞行中指令（in-run steer）：注入运行中 agent，下一轮生效 */
+async function sendSteer(){
+  const text = $('#taskInput').value.trim();
+  if(!text){ toast('请输入指令内容'); return; }
+  if(!curTaskId){ sendTask(); return; }
+  $('#taskInput').value='';
+  const _ta=$('#taskInput'); _ta.style.height='auto'; _ta.style.height='52px';
+  $('#msgs').appendChild(renderMsg('user', text));
+  try {
+    const r = await api(`/api/task/${curTaskId}/message`,{method:'POST',json:{text}});
+    $('#msgs').appendChild(renderMsg('sys',
+      r.injected>0 ? `指令已注入 ${r.injected} 个运行中 agent（下一轮生效）`
+                   : '指令已收到（当前无运行中 agent，将在下一批子 agent 自动注入）'));
+  } catch(e){
+    $('#msgs').appendChild(renderMsg('error','指令注入失败: '+e.message));
+  }
+  scrollBottom(true);
+}
+
+function onSendBtn(){
+  if (curTaskId) stopTask(); else sendTask();
+}
+$('#sendBtn').onclick = onSendBtn;
+$('#taskInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); if (curTaskId) sendSteer(); else sendTask(); }
+});
+$('#taskInput').addEventListener('input', autogrow);
+$('#newbtn').onclick = newSession;
+
+function autogrow(){
+  const ta=$('#taskInput');
+  ta.style.height='auto';
+  ta.style.height=Math.min(ta.scrollHeight, 200)+'px';
+}
+
+/* ---------- 进行中任务恢复（刷新后）---------- */
+  async function adoptRunningTask(t){
+    curSid = t.session_id;
+    if (t.target){ $('#targetInput').value = t.target; $('#targetInput').disabled = true; $('#targetInput').placeholder = t.target; }
+    else { $('#targetInput').value=''; $('#targetInput').disabled=false; }
+  const msgs=$('#msgs'); msgs.innerHTML='';
+  try {
+    const ms = await api(`/api/sessions/${t.session_id}/messages`);
+    ms.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
+    await renderTaskArtifacts(msgs, t.session_id);
+  } catch(e){}
+  $('#msgs').appendChild(renderMsg('sys','检测到进行中的任务 '+t.task_id+'，已恢复实时显示'));
+  createLiveCard(t.task_id);
+  startStream(t.task_id, t.session_id);
+  refreshSessions();
+}
+async function restoreTasks(retry=true){
+  let tasks;
+  try { tasks = await api('/api/tasks?status=running'); } catch(e){ return; }
+  (tasks||[]).forEach(t=>{ if (t.session_id) runningTasks[t.session_id]=t.task_id; });
+  refreshSessions();
+  const t = tasks && tasks.length ? tasks[0] : null;
+  if (t && t.session_id){
+    await adoptRunningTask(t);
+  } else if (retry){
+    // 任务刚派发时元数据可能还没落库 running → 3s 后重试一次（防"派发完立刻刷新"错过恢复）
+    setTimeout(async ()=>{
+      if (curTaskId) return;
+      try {
+        const t2 = await api('/api/tasks?status=running');
+        (t2||[]).forEach(x=>{ if (x.session_id) runningTasks[x.session_id]=x.task_id; });
+        refreshSessions();
+        const first = t2 && t2.length ? t2[0] : null;
+        // 仅当用户还没打开任何会话（消息区无消息）时自动接管，避免抢用户视图
+        if (first && first.session_id && !$('#msgs').querySelector('.msg')) adoptRunningTask(first);
+      } catch(e){}
+    }, 3000);
+  }
+}
+
+/* ---------- 自举 ---------- */
+(async function init(){
+  await refreshModels();
+  await refreshTargets();
+  const e0 = $('#empty'); if (e0) e0.replaceWith(emptyState());
+  refreshSessions();
+  await restoreTasks();
+  // 定期刷新任务状态（会话列表运行点 + 左栏实时状态副标题/进度条，流式期间也刷）
+  setInterval(async ()=>{
+    try {
+      if (!curTaskId){
+        const tasks = await api('/api/tasks?status=running');
+        for (const k of Object.keys(runningTasks)) delete runningTasks[k];
+        (tasks||[]).forEach(t=>{ if (t.session_id) runningTasks[t.session_id]=t.task_id; });
+      }
+      refreshSessions();
+    } catch(e){}
+  }, 30000);
+})();
+</script>
+</body>
+</html>

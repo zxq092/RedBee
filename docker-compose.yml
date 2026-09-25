@@ -1,0 +1,72 @@
+# RedBee — AI 渗透智能体 一键编排
+#
+# 用法：
+#   1. 准备配置（密钥不走镜像）：cp platform/config.example.env platform/.env 并填入真实 LLM key
+#   2. 拉取 Kali 沙箱镜像（网关用它跑攻击命令，需在宿主 daemon 上）：
+#        docker compose --profile sandbox pull
+#   3. 启动：
+#        docker compose up -d --build
+#
+# 网络要点（重要）：
+#   - 网关装进容器后，内部 REDKB_URL 用 compose 服务名 redkb，不是 127.0.0.1
+#     （127.0.0.1 会是网关容器自身回环）。这是 docker 化唯一要改的配置。
+#   - 网关通过挂载的宿主 socket (/var/run/docker.sock) 调宿主 daemon 起 Kali 沙箱，
+#     沙箱是宿主的"兄弟容器"且用 --network bridge → 打宿主桥接网络上的靶场不变。
+#   - RED-KB 发布到 8001：既给外部调试，也兼容"沙箱内经宿主 172.17.0.1:8001 curl KB"的旧玩法。
+
+name: redbee
+
+services:
+  # ---------- RED-KB 知识库服务 ----------
+  redkb:
+    build: .
+    image: ${REDBEE_IMAGE:-redbee:local}
+    command: ["sh", "-c", "python3 -m redkb.seed && python3 -m uvicorn redkb.app:app --host 0.0.0.0 --port 8001"]
+    env_file: ./platform/.env
+    environment:
+      REDKB_DATA_DIR: /data
+    volumes:
+      - redbee-data:/data
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ---------- PI 网关 ----------
+  gateway:
+    build: .
+    image: ${REDBEE_IMAGE:-redbee:local}
+    command: ["python3", "-m", "uvicorn", "pi_meta.app:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "5"]
+    env_file: ./platform/.env
+    environment:
+      # 关键：容器内用 compose 服务名访问 RED-KB，不能是 127.0.0.1
+      REDKB_URL: http://redkb:8001
+      REDKB_DATA_DIR: /data
+      PIMETA_DB: /data/pimeta.db
+      # Kali 沙箱镜像（宿主 daemon 拉取/使用）
+      HINSE_DOCKER_IMAGE: vxcontrol/kali-linux:latest
+    volumes:
+      - redbee-data:/data
+      # 关键：挂宿主 Docker socket，网关才能调宿主 daemon 起 Kali 沙箱（兄弟容器）
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8000:8000"
+    depends_on:
+      redkb:
+        condition: service_healthy
+
+  # ---------- Kali 沙箱镜像预拉取（辅助） ----------
+  # 网关每次任务会 docker run 一个 inhouse-sess-* 的 Kali 容器（由宿主 daemon 起）。
+  # 需要先在宿主 daemon 有 vxcontrol/kali-linux。本服务用 profile 单独预拉：
+  #   docker compose --profile sandbox pull
+  kali-image:
+    image: vxcontrol/kali-linux:latest
+    profiles: ["sandbox"]
+    command: ["true"]
+
+volumes:
+  redbee-data:

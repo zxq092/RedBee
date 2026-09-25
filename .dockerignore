@@ -1,0 +1,38 @@
+# 密钥（绝不进镜像层；运行时用 compose env_file 注入）
+platform/.env
+*.env
+
+# 运行数据
+data/
+secrets/
+
+# 仓库里不发放的目录（与 .gitignore 保持一致）
+distill/
+clown-src-6k-skill/
+clown-src-6k-skill.zip
+docs/
+deploy/
+ref/
+vendor/
+
+# 运行时 / 缓存 / 开发产物
+runtime/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+tests/
+AGENTS.md
+todolist.md
+.git/
+.gitignore
+.travis.yml
+
+# 内部一次性脚本（引用本机路径/密钥）
+platform/juiceshop_progress.py
+platform/ingest_juiceshop_solutions.py
+platform/generify_juiceshop_docs.py
+platform/pi_web/
+platform/pi_extensions/
+platform/start_piweb.sh

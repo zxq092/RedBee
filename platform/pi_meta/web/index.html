@@ -383,7 +383,7 @@
             </label>
           </div>
         </details>
-        <div id="runStatus" class="run-status" style="display:none">
+        <div id="runStatus" class="run-status">
           <span class="run-dots"><i></i><i></i><i></i><i></i></span>
           <span id="runStatusText" class="run-text">执行中…</span>
           <span class="run-spacer"></span>
@@ -827,15 +827,21 @@ $('#sessSearch').oninput = ()=> refreshSessions();
       await renderTaskArtifacts(msgs, sid);
       scrollBottom(true);
     } catch(e){ msgs.appendChild(renderMsg('sys', '加载会话失败: '+e.message)); }
-   const rt = runningTasks[sid];
-   if (curTaskId && (sid===curSid || rt===curTaskId)){
-     // 该会话的任务正是当前活动任务：重建执行卡（流保持，不重连）
-     createLiveCard(curTaskId);
-   } else if (rt && !curTaskId){
-     // 该会话有进行中任务且当前无活动流：接流
-     createLiveCard(rt);
-     startStream(rt, sid);
-   }
+    const rt = runningTasks[sid];
+    if (rt){
+      if (rt !== curTaskId){
+        // 该会话有进行中任务且当前流不属于它（含无活动流）：接流
+        createLiveCard(rt);
+        startStream(rt, sid);
+      } else {
+        // 已连接该会话的流：仅重建执行卡
+        createLiveCard(rt);
+      }
+    } else if (curTaskId){
+      // 该会话无进行中任务：断开流、隐藏状态栏
+      //（后端任务继续跑，切回该 running 会话时上面分支自动重连）
+      clearStream();
+    }
    refreshSessions();
    // 从任务记录恢复目标，历史会话目标不可修改
    const task = taskBySess[sid];
@@ -893,11 +899,10 @@ async function renderTaskArtifacts(msgs, sid){
 }
 
  async function newSession(){
-   if (curTaskId){
-     // 有任务在跑：保留后台流（不停），仅切到新会话视图；回旧会话可重连
+   const hadRunning = !!curTaskId;
+   clearStream();   // 隐藏状态栏；后端任务继续跑，回原会话自动重连
+   if (hadRunning){
      toast('有任务在后台执行，回到该会话可看实时进度');
-   } else {
-     clearStream();
    }
    $('#targetInput').value=''; curTargetId='';
    $('#targetInput').disabled = false;

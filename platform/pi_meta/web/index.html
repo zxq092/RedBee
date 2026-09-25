@@ -857,8 +857,9 @@ async function renderTaskArtifacts(msgs, sid){
     shown.forEach((t,i)=>{
       const row = el('div','artifact-row');
       row.appendChild(el('span','artifact-id', t.task_id));
-      row.appendChild(el('span','artifact-stat', `${smap[t.status]||t.status} · ${t.findings||0} 发现`));
-      const sumParts = [fmtDur(t.created_at, t.updated_at), boards[i] ? findingsSummary(boards[i]) : ''].filter(Boolean);
+      row.appendChild(el('span','artifact-stat', `${smap[t.status]||t.status} · ${t.findings||0} 条发现`));
+      const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
+                        boards[i] ? findingsSummary(boards[i]) : ''].filter(Boolean);
       if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
       const rb = el('button','tbtn','⬇ 报告');
       rb.onclick = async ()=>{
@@ -1372,6 +1373,26 @@ function fmtDur(created, updated){
     return Math.floor(m/60)+'h '+(m%60)+'min';
   } catch(e){ return ''; }
 }
+// 本地时间友好格式化：今天/昨天/日期 + HH:MM
+function fmtWhen(iso){
+  try {
+    const d = new Date(iso); if (isNaN(d)) return '';
+    const now = new Date();
+    let day;
+    const dstr = d.toDateString(), nstr = now.toDateString();
+    if (dstr === nstr) day = '今天';
+    else { const y = new Date(now); y.setDate(now.getDate()-1); day = (dstr === y.toDateString()) ? '昨天' : d.toLocaleDateString(); }
+    return day + ' ' + d.toTimeString().slice(0,5);
+  } catch(e){ return ''; }
+}
+// 展示为：今天 14:30 起 · 耗时 2h 0min
+function fmtWhenRange(created, updated){
+  try {
+    const s = fmtWhen(created), dur = fmtDur(created, updated);
+    if (!s) return dur ? '耗时 ' + dur : '';
+    return (dur ? s + ' 起 · 耗时 ' + dur : s);
+  } catch(e){ return ''; }
+}
 function findingsSummary(findings){
   const valid = (findings||[]).filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
   if (!valid.length) return '无有效发现';
@@ -1416,7 +1437,7 @@ async function onTaskDone(status){
   const fcount = boardFindings.length;
   let meta=null;
   try { meta = await api(`/api/task/${taskId}/meta`); } catch(e){}
-  const dur = meta ? fmtDur(meta.created_at, meta.updated_at) : '';
+  const dur = meta ? fmtWhenRange(meta.created_at, meta.updated_at) : '';
   const stText = status==='done'?'完成':(status==='cancelled'?'已停止':'失败');
   notify(`渗透任务${stText}`, `${taskId} · ${fcount} 条发现${dur?' · '+dur:''}`);
   toast(`任务${stText}：${fcount} 条发现` + (dur ? ' · '+dur : ''));

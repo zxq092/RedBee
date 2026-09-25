@@ -321,7 +321,7 @@
       <button data-i18n="toBottom" id="followJump">↓ 回到底部</button>
       <div id="inputbar">
         <details id="advParams">
-          <summary data-i18n="advParams">⚙ 高级参数（仅本任务生效，留空 = 跟随全局设置）</summary>
+          <summary data-i18n="advParams">⚙ 高级参数（本会话固定配置，后续任务沿用；留空 = 跟随全局）</summary>
           <div class="adv-grid">
             <label>并行模块数
               <span class="hint">本任务同时打几个模块。多任务并行时开太高会让 LLM 超时挂死</span>
@@ -391,6 +391,46 @@ applyTheme();
 
 /* ---- 国际化：中文(默认) / English ---- */
 let lang = localStorage.getItem('redbee_lang') || 'zh';   // 'zh' 或 'en'
+/* ---- 会话级参数（方案：每 session 持久一套，本会话后续新任务沿用）---- */
+let sessParamsStore = {};   // { sid: {max_parallel, max_modules, ...} }
+try { sessParamsStore = JSON.parse(localStorage.getItem('redbee_sess_params') || '{}') || {}; } catch(e) { sessParamsStore = {}; }
+function persistSessParams(){ try { localStorage.setItem('redbee_sess_params', JSON.stringify(sessParamsStore)); } catch(e){} }
+// 从输入框收集参数（发送时用）
+function collectParamInputs(){
+  const params = {};
+  const _num = (sel, key) => { const v = $(sel).value.trim(); if (v) params[key] = parseInt(v, 10); };
+  _num('#pMaxParallel', 'max_parallel');
+  _num('#pMaxModules', 'max_modules');
+  _num('#pChildTurns', 'child_max_turns');
+  _num('#pTaskBudget', 'task_budget');
+  _num('#pRetryDelay', 'module_retry_delay');
+  if ($('#pSkipRecon').checked) params.skip_recon = true;
+  if ($('#pForceAll').checked) params.force_all_modules = true;
+  const _pm = $('#pModel').value; if (_pm) params.model = _pm;
+  return params;
+}
+// 把参数填充回输入框（打开会话时恢复）
+function applyParamsToInputs(p){
+  p = p || {};
+  if (p.max_parallel) $('#pMaxParallel').value = p.max_parallel;
+  if (p.max_modules) $('#pMaxModules').value = p.max_modules;
+  if (p.child_max_turns) $('#pChildTurns').value = p.child_max_turns;
+  if (p.task_budget) $('#pTaskBudget').value = p.task_budget;
+  if (p.module_retry_delay != null) $('#pRetryDelay').value = p.module_retry_delay;
+  $('#pSkipRecon').checked = !!p.skip_recon;
+  $('#pForceAll').checked = !!p.force_all_modules;
+  if (p.model) $('#pModel').value = p.model;
+}
+// 保存当前会话的参数（切走/发送后调用）
+function saveCurSessParams(){
+  if (!curSid) return;
+  sessParamsStore[curSid] = collectParamInputs();
+  persistSessParams();
+}
+// 加载指定会话的参数到输入框
+function loadParamsToInputs(sid){
+  applyParamsToInputs(sessParamsStore[sid] || {});
+}
 const TRANS = {
   zh: {"docTitle": "渗透智能体 · 控制台",
   "brand": "渗透智能体",
@@ -404,7 +444,7 @@ const TRANS = {
   "login": "登录",
   "empty": "新建会话或选择左侧历史会话，开始渗透任务",
   "toBottom": "↓ 回到底部",
-  "advParams": "⚙ 高级参数（仅本任务生效，留空 = 跟随全局设置）",
+  "advParams": "⚙ 高级参数（本会话固定配置，后续任务沿用；留空 = 跟随全局）",
   "pParallel": "并行模块数",
   "pParallelHint": "本任务同时打几个模块。多任务并行时开太高会让 LLM 超时挂死",
   "pModules": "候选模块数",
@@ -442,7 +482,7 @@ const TRANS = {
   "login": "Login",
   "empty": "Start a new session or select a history one on the left, then begin a pentest.",
   "toBottom": "↓ Bottom",
-  "advParams": "⚙ Advanced (this task only; blank = follow global)",
+  "advParams": "⚙ Advanced (session config, reused for future tasks; blank = follow global)",
   "pParallel": "Parallel modules",
   "pParallelHint": "How many modules to hit in parallel. Too high under multitasking can make LLM time out.",
   "pModules": "Candidate modules",
@@ -742,7 +782,9 @@ function startRename(sessEl, s){
 $('#sessSearch').oninput = ()=> refreshSessions();
 
   async function openSession(sid){
+    saveCurSessParams();          // 切走前，保存当前会话的参数
     curSid = sid;
+    loadParamsToInputs(sid);      // 加载目标会话的参数
     const msgs=$('#msgs'); msgs.innerHTML='';
     try {
       const ms = await api(`/api/sessions/${sid}/messages`);
@@ -826,6 +868,7 @@ async function renderTaskArtifacts(msgs, sid){
     const d = await api('/api/sessions',{method:'POST',json:{}});
     curSid = d.id;
   } catch(e){ toast('新建会话失败: '+e.message); return; }
+  applyParamsToInputs({});          // 新会话默认无固定参数
   $('#msgs').innerHTML='';
   $('#msgs').appendChild(emptyState());
   refreshSessions();
@@ -1389,17 +1432,8 @@ async function sendTask(){
     const hit = knownTargets.find(t=>t.addr && (t.addr===target || target.startsWith(t.addr)));
     body.target_id = hit ? hit.id : guessTargetId(target);
   }
-  /* 高级参数（仅本任务）：留空不传 = 跟随全局/配方 */
-  const params = {};
-  const _num = (sel, key) => { const v = $(sel).value.trim(); if (v) params[key] = parseInt(v, 10); };
-  _num('#pMaxParallel', 'max_parallel');
-  _num('#pMaxModules', 'max_modules');
-  _num('#pChildTurns', 'child_max_turns');
-  _num('#pTaskBudget', 'task_budget');
-  _num('#pRetryDelay', 'module_retry_delay');
-  if ($('#pSkipRecon').checked) params.skip_recon = true;
-  if ($('#pForceAll').checked) params.force_all_modules = true;
-  const _pm = $('#pModel').value; if (_pm) params.model = _pm;
+  /* 会话级参数：读当前输入框，作为本会话后续任务的固定配置 */
+  const params = collectParamInputs();
   if (Object.keys(params).length) body.params = params;
   $('#msgs').appendChild(renderMsg('user', task + (target? ('\n目标: '+target):'')));
   $('#taskInput').value='';
@@ -1409,8 +1443,7 @@ async function sendTask(){
     const d = await api('/api/task',{method:'POST',json:body});
     $('#msgs').appendChild(renderMsg('assistant','任务已分发后台执行…',{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(' 参数:'+JSON.stringify(d.params)):''), status:'running'}));
     if (d.param_warnings && d.param_warnings.length) toast('参数剔除: '+d.param_warnings.join('; '));
-    ['#pMaxParallel','#pMaxModules','#pChildTurns','#pTaskBudget','#pRetryDelay'].forEach(s=>$(s).value='');
-    $('#pSkipRecon').checked=false; $('#pForceAll').checked=false; $('#pModel').value='';
+    saveCurSessParams();               // 记住本会话的这套参数（后续任务沿用）
     $('#advParams').open=false;
     runningTasks[curSid] = d.task_id; // 运行点 + 切会话后可重连
     if (target){ $('#targetInput').value = target; $('#targetInput').disabled = true; $('#targetInput').placeholder = target; }

@@ -1368,29 +1368,31 @@ function fmtDur(created, updated){
     const ms = new Date(updated) - new Date(created);
     if (!(ms >= 0)) return '';
     const m = Math.floor(ms/60000);
-    if (m < 1) return '<1min';
-    if (m < 60) return m+'min';
-    return Math.floor(m/60)+'h '+(m%60)+'min';
+    if (m < 1) return '不到 1 分钟';
+    if (m < 60) return m + ' 分钟';
+    return Math.floor(m/60) + ' 小时 ' + (m % 60) + ' 分';
   } catch(e){ return ''; }
 }
 // 本地时间友好格式化：今天/昨天/日期 + HH:MM
-function fmtWhen(iso){
-  try {
-    const d = new Date(iso); if (isNaN(d)) return '';
-    const now = new Date();
-    let day;
-    const dstr = d.toDateString(), nstr = now.toDateString();
-    if (dstr === nstr) day = '今天';
-    else { const y = new Date(now); y.setDate(now.getDate()-1); day = (dstr === y.toDateString()) ? '昨天' : d.toLocaleDateString(); }
-    return day + ' ' + d.toTimeString().slice(0,5);
-  } catch(e){ return ''; }
-}
-// 展示为：今天 14:30 起 · 耗时 2h 0min
 function fmtWhenRange(created, updated){
   try {
-    const s = fmtWhen(created), dur = fmtDur(created, updated);
-    if (!s) return dur ? '耗时 ' + dur : '';
-    return (dur ? s + ' 起 · 耗时 ' + dur : s);
+    const dur = fmtDur(created, updated);
+    const s = new Date(created), e = new Date(updated);
+    if (isNaN(s)) return dur ? '耗时 ' + dur : '';
+    const dstrOf = d => d.toDateString();
+    const hmOf = d => d.toTimeString().slice(0,5);
+    const dayOf = d => {
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) return '今天';
+      const y = new Date(now); y.setDate(now.getDate()-1);
+      if (d.toDateString() === y.toDateString()) return '昨天';
+      return d.toLocaleDateString();
+    };
+    let range = dayOf(s) + ' ' + hmOf(s);
+    if (!isNaN(e) && !(dstrOf(s) === dstrOf(e) && hmOf(s) === hmOf(e))){
+      range += ' – ' + (dstrOf(s) === dstrOf(e) ? hmOf(e) : dayOf(e) + ' ' + hmOf(e));
+    }
+    return dur ? range + ' · 耗时 ' + dur : range;
   } catch(e){ return ''; }
 }
 function findingsSummary(findings){

@@ -474,8 +474,8 @@ function _v(o, vars){
   if (vars){ for (const k in vars) s = s.split('{'+k+'}').join(vars[k]); }
   return s;
 }
-// REKEY: t('key', {vars}) 读文案
-function t(key, vars){ return _v(TRANS[key] || {}, vars) || key; }
+// 按字段名 k 取双语：TRANS = {zh:{k:中}, en:{k:英}}
+function t(key, vars){ const o = { zh: (TRANS.zh||{})[key], en: (TRANS.en||{})[key] }; return _v(o, vars) || key; }
 // allI18nText(): 收集静态节点需翻译的文案，供 applyI18n 统一替换
 function setLang(v){
   lang = (v === 'en') ? 'en' : 'zh';
@@ -495,13 +495,15 @@ function applyI18n(){
   // 静态元素：data-i18n = TRANS key
   document.querySelectorAll('[data-i18n]').forEach(el0=>{
     const k = el0.getAttribute('data-i18n');
+    const entry = { zh: (TRANS.zh||{})[k], en: (TRANS.en||{})[k] };
     // 只翻译"叶子文本"节点(无子元素)，避免 textContent 清掉内嵌结构(如 <small>)
-    if (TRANS[k] && !el0.children.length) el0.textContent = _v(TRANS[k]);
+    if ((entry.zh || entry.en) && !el0.children.length) el0.textContent = _v(entry);
   });
   // 静态 placeholder
   document.querySelectorAll('[data-i18n-ph]').forEach(el0=>{
     const k = el0.getAttribute('data-i18n-ph');
-    if (TRANS[k]) el0.setAttribute('placeholder', _v(TRANS[k]));
+    const entry = { zh: (TRANS.zh||{})[k], en: (TRANS.en||{})[k] };
+    if (entry.zh || entry.en) el0.setAttribute('placeholder', _v(entry));
   });
   const lb = document.getElementById('langBtn');
   if (lb) lb.textContent = (lang === 'en') ? '中文' : 'EN';

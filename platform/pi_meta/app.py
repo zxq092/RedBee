@@ -517,7 +517,12 @@ async def task_board(task_id: str):
     status 供前端轮询做"完成检测"（SSE 流断了也能发现任务已结束，防卡片卡死在运行中）。"""
     meta = sessions.get_task_metadata(task_id) or {}
     bg = _BG_TASKS.get(task_id)
-    status = "running" if (bg is not None and not bg.done()) else (meta.get("status") or "running")
+    # 有存活后台任务 = running；否则用已落库的终态。内存/状态都查不到时(如网关重启后的孤儿任务)
+    # 绝不回退成 running——否则历史会话会永远顶着一个"运行中"绿点。此时按 interrupted 处理更真实。
+    if bg is not None and not bg.done():
+        status = "running"
+    else:
+        status = meta.get("status") or "interrupted"
     return {"task_id": task_id, "findings": board_mod.all_findings(task_id), "status": status}
 
 

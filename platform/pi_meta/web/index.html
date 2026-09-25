@@ -182,6 +182,16 @@
             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:0; }
   .lb-fp { opacity:.5; }
   .lb-fp .f-title { text-decoration:line-through; }
+  /* ---- 漏洞严重度分布条（纯 CSS 像素条 + 图例）---- */
+  .lb-sevbar { display:flex; flex-direction:column; gap:4px; padding:8px 12px; border-bottom:1px solid var(--code-border); }
+  .lb-sevbar .bar { display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--chip-bg); }
+  .lb-sevbar .bar i { height:100%; display:block; }
+  .lb-sevbar .bar i.s-critical{background:#ff5c5c;} .lb-sevbar .bar i.s-high{background:#f0883e;}
+  .lb-sevbar .bar i.s-medium{background:var(--yellow);} .lb-sevbar .bar i.s-low{background:#79c0ff;}
+  .lb-sevbar .bar i.s-info{background:var(--map-dot);}
+  .lb-sevbar .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:10.5px; color:var(--muted); }
+  .lb-sevbar .legend span { display:inline-flex; align-items:center; gap:3px; }
+  .lb-sevbar .legend i { width:8px; height:8px; border-radius:2px; }
   .lb-detail { background:var(--code-bg); border:1px solid var(--code-border); border-radius:7px; margin:2px 12px 8px;
                padding:8px 10px; font-size:11px; }
   .lb-detail h5 { color:var(--blue); font-size:11px; margin:5px 0 2px; font-weight:700; }
@@ -995,7 +1005,8 @@ $('#loginBtn').onclick = doLogin;
 const PHASES = ['pre-recon','recon','root-decide','exploit','report'];
 let boardTimer = null;
 function createLiveCard(taskId){
-  if (liveState && liveState.card.parentNode) liveState.card.remove();
+  // 串行模型：每个任务一张独立执行卡，保留已定格的旧任务卡；仅当给同一 taskId 重复建卡时才移除旧卡
+  if (liveState && liveState.taskId === taskId && liveState.card.parentNode) liveState.card.remove();
   const card = el('div','livecard');
   const head = el('div','lc-head');
   const dot = el('span','lc-dot');
@@ -1083,6 +1094,26 @@ function renderBoard(ls, findings){
   ls.boardRepBtn.style.display = findings.length ? '' : 'none';
   const sorted = [...findings].sort((a,b)=>
     ((SEV_RANK[a.severity]??9)-(SEV_RANK[b.severity]??9)) || (a.id-b.id));
+  // 严重度分布条（纯 CSS）：有效发现按 severity 计数 + 堆叠条 + 图例
+  const valid2 = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  if (valid2.length){
+    const sev = {critical:0, high:0, medium:0, low:0, info:0};
+    valid2.forEach(f=>{ const s=String(f.severity||'info').toLowerCase(); if (sev[s]!=null) sev[s]++; });
+    const total = valid2.length;
+    const bar = el('div','lb-sevbar');
+    const segs = el('div','bar');
+    ['critical','high','medium','low','info'].forEach(k=>{
+      if (sev[k]) segs.appendChild(Object.assign(el('i','s-'+k),{style:'flex:'+sev[k]}));
+    });
+    bar.appendChild(segs);
+    const leg = el('div','legend');
+    ['critical','high','medium','low','info'].forEach(k=>{
+      if (sev[k]){ const s=el('span','',  k+' '+sev[k]); s.prepend(Object.assign(el('i',''),{style:'background:'+({critical:'#ff5c5c',high:'#f0883e',medium:'var(--yellow)',low:'#79c0ff',info:'var(--map-dot)'})[k]||'var(--map-dot)'})); leg.appendChild(s); }
+    });
+    leg.appendChild(el('span','', '共 '+total+' 条'));
+    bar.appendChild(leg);
+    list.appendChild(bar);
+  }
   if (!sorted.length){ list.appendChild(el('div','lb-empty','暂无发现')); }
   sorted.forEach(f=>{
     const fp = String(f.status||'found').toLowerCase()==='false_positive';

@@ -67,10 +67,10 @@ AI 渗透目前有三个结构性难题没解决：
 - `core_done:true`，2400 分，flag 全从 live 响应提取
 
 ### 知识库（RED-KB）
-- **1353 条**知识条目（560 attack_primitive / 787 poc）
+- **1517 条**知识条目（630 attack_primitive / 881 poc）+ 147 条攻击案例
 - 一次完整渗透 → **10 类通用技法全部回流为 authoritative**，`kb_query` 各类均 top 命中可检索
 
-> **冷启动不空白**：仓库已随 `redkb.seed` 内置 172 个实战 skill + 上述种子知识库，首次运行即可派上用场；之后每打一次，经验继续回流，库越来越厚。
+> **冷启动不空白**：仓库已随 `redkb.seed` 内置 175 个实战 skill + 上述种子知识库，首次运行即可派上用场；之后每打一次，经验继续回流，库越来越厚。
 
 ---
 
@@ -100,7 +100,7 @@ AI 渗透目前有三个结构性难题没解决：
 
 LLM 通过结构化 function calling 决定调什么工具，不靠"模型输出 JSON 文本"这种不可靠方式。
 
-### 172 个 Skill 库
+### 175 个 Skill 库
 
 经 `list_skills` / `load_skill` 工具按需加载，覆盖：
 - **vulnerabilities**（87）：SQLi / XSS / SSRF / Auth Bypass / IDOR / RCE 等
@@ -112,6 +112,30 @@ LLM 通过结构化 function calling 决定调什么工具，不靠"模型输出
 - **protocols**：GraphQL / WebSocket / OAuth
 - **technologies**：Django / Express / FastAPI / Next.js / 云服务
 - **cloud**：AWS / Azure / GCP / Kubernetes
+
+### Skills vs RED-KB：经验的两个载体
+
+Skills 和 RED-KB 是两类不同的经验资产，在一次任务中分工协作：
+
+> **Skills = 教科书（静态）；RED-KB = 战地日记（动态）。**
+
+|  | **Skills**（175 个 .md） | **RED-KB**（1500+ 知识条目 + 案例库） |
+|---|---|---|
+| **是什么** | 方法论 / 操作手册 | 成功经验 + 实证 PoC |
+| **来源** | 蒸馏自开源引擎与公开披露报告（Strix / Shannon / Claude-BugHunter） | **我们自己的渗透任务自动回流**，每跑一次就长一点 |
+| **会变吗** | ❌ 静态，需人工添加 | ✅ 自动增长：运行中 finding 逐条入 poc + 收口按漏洞类蒸馏成通用技法 |
+| **怎么查** | `load_skill("sql-injection")`——**按名字**取 | `kb_query("JWT 怎么绕过")`——**语义检索**（向量相似度） |
+| **内容** | "这类漏洞通用怎么打、用什么工具、注意什么" | "上次实际用这条 PoC 打穿了这类问题（去标识化，跨靶场可迁移）" |
+| **治理** | 人工策展质量 | 门禁：verified / sanitized / scope，未验证的经验挡在检索外 |
+
+**一次任务里的配合**：
+
+1. 派发时自动注入**模块 skill** 进子 agent prompt（sqli 模块 → sql-injection 教科书）
+2. agent 运行中用 `kb_query` 翻**战地日记**（"这种情况我们之前怎么破的？"）
+3. 打出 finding → **回流 RED-KB**（skills 永远不变）
+4. 下次任务：教科书没变，日记厚了 → 同类题更快打通
+
+类比：Skills 是《内科学》教材，RED-KB 是主治大夫自己的病例本——教材教通用原理，病例本记"这种病人我实际怎么治好的"，而且只有真正治好过、带证据的才收进病例本。
 
 ### 模型路由 + 自动降级
 
@@ -272,7 +296,7 @@ platform/
 ├── agents/
 │   ├── executor.py           # InhouseAgent（ReAct 循环 + 护栏 + memory）
 │   ├── orchestrator_v2.py    # 5 阶段受控编排
-│   └── skills/               # 172 个 skill 包
+│   └── skills/               # 175 个 skill 包
 ├── redkb/                    # RED-KB 知识库服务（:8001）
 ├── auto_ingest.py            # 知识回流闭环（task done → 按漏洞类蒸馏 → 入库）
 ├── config.py                 # 统一配置（读 .env）
@@ -287,6 +311,8 @@ platform/
 ## 设计文档
 
 架构与知识库的设计细节见项目 Wiki / Issues。核心模块（`pi_meta/`、`agents/`、`redkb/`）的 docstring 里也有对应说明。
+
+自部署遇到问题先看 **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**（连接/沙箱/LLM 超时/知识库检索等常见坑）。
 
 ---
 

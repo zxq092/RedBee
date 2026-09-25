@@ -183,6 +183,16 @@
   .lb-fp { opacity:.5; }
   .lb-fp .f-title { text-decoration:line-through; }
   /* ---- 漏洞严重度分布条（纯 CSS 像素条 + 图例）---- */
+  /* 漏洞摘要块（板顶，滚动时 sticky 置顶；总览行 + 每类漏洞一行代表标题）*/
+  .lb-digest { position:sticky; top:0; z-index:2; padding:8px 12px; border-bottom:1px solid var(--code-border);
+               background:var(--code-bg); font-size:12px; }
+  .lb-digest .dg-head { font-weight:700; color:var(--blue-soft); font-size:11px; margin-bottom:4px; letter-spacing:.5px; }
+  .lb-digest .dg-total { color:var(--text); margin-bottom:4px; line-height:1.4; }
+  .lb-digest .dg-line { display:flex; gap:6px; align-items:baseline; padding:1.5px 0; line-height:1.45; }
+  .lb-digest .dg-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; transform:translateY(1px); }
+  .lb-digest .dg-cls { font-weight:700; white-space:nowrap; }
+  .lb-digest .dg-titles { color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lb-digest .dg-more { color:var(--muted); font-size:11px; padding-top:2px; }
   .lb-sevbar { display:flex; flex-direction:column; gap:4px; padding:8px 12px; border-bottom:1px solid var(--code-border); }
   .lb-sevbar .bar { display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--chip-bg); }
   .lb-sevbar .bar i { height:100%; display:block; }
@@ -1101,6 +1111,39 @@ function renderBoard(ls, findings){
     ((SEV_RANK[a.severity]??9)-(SEV_RANK[b.severity]??9)) || (a.id-b.id));
   // 严重度分布条（纯 CSS）：有效发现按 severity 计数 + 堆叠条 + 图例
   const valid2 = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  // 漏洞摘要（板顶 sticky）：总览行 + 每类漏洞一行（组内最高严重度着色，最多 2 个代表标题）
+  if (valid2.length){
+    const DG_SEV_COLOR = {critical:'#ff5c5c',high:'#f0883e',medium:'var(--yellow)',low:'#79c0ff',info:'var(--map-dot)'};
+    const dg = el('div','lb-digest');
+    dg.appendChild(el('div','dg-head','漏洞摘要'));
+    const sevTot = {critical:0, high:0, medium:0, low:0, info:0};
+    valid2.forEach(f=>{ const s=String(f.severity||'info').toLowerCase(); if (sevTot[s]!=null) sevTot[s]++; });
+    const sevParts = ['critical','high','medium','low','info'].filter(k=>sevTot[k]).map(k=>k+' '+sevTot[k]);
+    let tot = valid2.length+' 条有效发现';
+    if (sevParts.length) tot += '（'+sevParts.join(' / ')+'）';
+    const confirmed = valid2.filter(f=>String(f.status||'').toLowerCase()==='confirmed').length;
+    if (confirmed) tot += ' · confirmed '+confirmed;
+    dg.appendChild(el('div','dg-total', tot));
+    const groups = {};
+    valid2.forEach(f=>{ const k=f.vuln_class||'未分类'; (groups[k]=groups[k]||[]).push(f); });
+    const glist = Object.entries(groups).sort((a,b)=>{
+      const sa=Math.min(...a[1].map(f=>SEV_RANK[f.severity]??9)), sb=Math.min(...b[1].map(f=>SEV_RANK[f.severity]??9));
+      return sa-sb || b[1].length-a[1].length;
+    });
+    const MAXG = 8;
+    glist.slice(0,MAXG).forEach(([k,arr])=>{
+      const top=[...arr].sort((a,b)=>(SEV_RANK[a.severity]??9)-(SEV_RANK[b.severity]??9))[0];
+      const sevName=String(top.severity||'info').toLowerCase();
+      const line=el('div','dg-line');
+      line.appendChild(Object.assign(el('span','dg-dot'),{style:'background:'+(DG_SEV_COLOR[sevName]||'var(--map-dot)')}));
+      line.appendChild(el('span','dg-cls', k+'（'+sevName+'×'+arr.length+'）'));
+      const titles=[...new Set(arr.map(f=>f.title).filter(Boolean))].slice(0,2).join('；');
+      line.appendChild(el('span','dg-titles', titles));
+      dg.appendChild(line);
+    });
+    if (glist.length>MAXG) dg.appendChild(el('div','dg-more','…另 '+ (glist.length-MAXG) +' 类见下方列表'));
+    list.appendChild(dg);
+  }
   if (valid2.length){
     const sev = {critical:0, high:0, medium:0, low:0, info:0};
     valid2.forEach(f=>{ const s=String(f.severity||'info').toLowerCase(); if (sev[s]!=null) sev[s]++; });

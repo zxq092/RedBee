@@ -248,15 +248,24 @@
   /* ---- 输入区 ---- */
   #inputbar { padding:12px 16px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:0; background:var(--panel); }
   .ib-row { display:flex; gap:10px; align-items:flex-end; }
-  /* ---- 执行中动态状态栏（输入区上方）---- */
-  .run-status { display:inline-flex; align-items:center; gap:7px; margin-bottom:8px; font-size:12px;
-                color:var(--green); background:var(--panel2); border:1px solid var(--border);
-                border-radius:8px; padding:5px 11px; width:max-content; }
-  .run-ico { width:9px; height:9px; border-radius:50%; background:var(--green); flex-shrink:0;
-             animation:runflow 1.2s ease-in-out infinite; }
-  .run-text { white-space:nowrap; }
-  @keyframes runflow { 0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(126,231,135,.4);}
-                       50%{opacity:.45; box-shadow:0 0 0 4px rgba(126,231,135,0);} }
+  /* ---- 执行中动态状态栏（输入区上方通栏）---- */
+  .run-status { display:none; align-items:center; gap:10px; padding:7px 12px; margin-bottom:8px;
+                font-size:12px; color:var(--text); background:var(--panel2);
+                border:1px solid var(--border); border-radius:9px; }
+  .run-status.on { display:flex; }
+  .run-dots { display:inline-flex; gap:3px; flex-shrink:0; }
+  .run-dots i { width:6px; height:6px; border-radius:1px; background:var(--green);
+                animation:runsquare 1s ease-in-out infinite; }
+  .run-dots i:nth-child(1){ animation-delay:0s; } .run-dots i:nth-child(2){ animation-delay:.15s; }
+  .run-dots i:nth-child(3){ animation-delay:.30s; } .run-dots i:nth-child(4){ animation-delay:.45s; }
+  @keyframes runsquare {
+    0%,100%{ transform:translateX(0); opacity:.25; }
+    50%    { transform:translateX(5px); opacity:1; }
+  }
+  .run-text { white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .run-spacer { flex:1; }
+  .run-stop { color:var(--danger-text); border-color:var(--danger-border); background:var(--danger-bg); }
+  .run-stop:hover { filter:brightness(1.1); }
   #advParams { font-size:13px; color:var(--muted,#8b949e); }
   #advParams[open] { margin-bottom:10px; }
   #advParams summary { cursor:pointer; padding:4px 0; user-select:none; font-size:12px; color:var(--muted,#8b949e); }
@@ -364,8 +373,13 @@
             </label>
           </div>
         </details>
+        <div id="runStatus" class="run-status" style="display:none">
+          <span class="run-dots"><i></i><i></i><i></i><i></i></span>
+          <span id="runStatusText" class="run-text">执行中…</span>
+          <span class="run-spacer"></span>
+          <button class="tbtn run-stop" id="stopBtn" title="停止任务（取消子任务 + 杀沙箱容器）">■ 停止</button>
+        </div>
         <div class="ib-row">
-        <div id="runStatus" class="run-status" style="display:none"><span class="run-ico"></span><span id="runStatusText" class="run-text">执行中…</span></div>
         <textarea id="taskInput" placeholder="描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证"></textarea>
         <button class="send" id="sendBtn">发送</button>
         </div>
@@ -1275,13 +1289,13 @@ function finalizeCard(status){
 /* ---------- SSE 流 ---------- */
 const sessTitles = {};  // sid -> title（停止按钮 tooltip 用）
 let runStatusTimer = null;
-// 输入区顶部动态状态栏：执行中持续刷新" 执行中 · 相位 · 已运行 · 上次活动 "
+// 输入区上方通栏状态栏：执行中持续刷新" 相位 · 已运行 · 上次活动 "
 function _fmtRunStatus(){
   const rs = $('#runStatus');
   if (!rs) return;
   const ls = liveState;
   const txt = $('#runStatusText');
-  let s = '执行中…';
+  let s = '执行中';
   if (ls){
     const parts = [];
     if (ls.phase) parts.push(ls.phase);
@@ -1291,7 +1305,7 @@ function _fmtRunStatus(){
     const idle = ls.lastActivity ? Math.max(0, Math.round((now - ls.lastActivity)/1000)) : 0;
     if (idle < 90) parts.push('上次活动 ' + idle + 's 前');
     else parts.push('LLM 思考中… ' + Math.floor(idle/60) + 'min');
-    s = '● 执行中 ' + (parts.length ? '· ' + parts.join(' · ') : '');
+    s = '执行中 · ' + parts.join(' · ');
   }
   if (txt) txt.textContent = s;
 }
@@ -1299,18 +1313,15 @@ function updateSendBtn(){
   const b = $('#sendBtn');
   const rs = $('#runStatus');
   if (curTaskId){
-    const tname = (taskSid && sessTitles[taskSid]) || curTaskId;
-    b.textContent='■ 停止'; b.classList.add('stopping');
-    b.title='停止任务: ' + tname + '（cancel 子任务 + 杀沙箱容器）';
-    if (rs){ rs.style.display='inline-flex'; _fmtRunStatus(); }
+    // 状态栏显示（方块动画；发送按钮保持"发送"职责）
+    if (rs){ rs.classList.add('on'); _fmtRunStatus(); }
     if (runStatusTimer === null){
-      // 尽量贴近实时（活动事件也即时更新由 _fmtRunStatus 在上方调度？否——用 1s 轮询最稳）
       runStatusTimer = setInterval(()=>{ if (curTaskId && $('#runStatus')) _fmtRunStatus(); }, 1000);
     }
   }
   else {
     b.textContent='发送'; b.classList.remove('stopping'); b.title='发送渗透任务';
-    if (rs) rs.style.display='none';
+    if (rs) rs.classList.remove('on');
     if (runStatusTimer){ clearInterval(runStatusTimer); runStatusTimer=null; }
   }
 }
@@ -1518,9 +1529,10 @@ async function sendSteer(){
 }
 
 function onSendBtn(){
-  if (curTaskId) stopTask(); else sendTask();
+  if (curTaskId) sendSteer(); else sendTask();
 }
 $('#sendBtn').onclick = onSendBtn;
+const _sb = $('#stopBtn'); if (_sb) _sb.onclick = stopTask;
 $('#taskInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); if (curTaskId) sendSteer(); else sendTask(); }
 });

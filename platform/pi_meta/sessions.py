@@ -222,7 +222,7 @@ def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:
     conn = _connect()
     cur = conn.cursor()
     q = ("SELECT task_id, session_id, target, target_id, model, status, created_at, updated_at, "
-         "agents, assigned_modules FROM task_metadata")
+         "agents, assigned_modules, runtime_error_summary FROM task_metadata")
     args: list = []
     if status:
         q += " WHERE status=?"
@@ -235,7 +235,8 @@ def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:
     out = []
     for r in rows:
         t = {"task_id": r[0], "session_id": r[1] or "", "target": r[2], "target_id": r[3],
-             "model": r[4], "status": r[5], "created_at": r[6], "updated_at": r[7]}
+             "model": r[4], "status": r[5], "created_at": r[6], "updated_at": r[7],
+             "runtime_error_summary": r[10] or ""}
         for key, raw in (("agents", r[8]), ("assigned_modules", r[9])):
             try:
                 t[key] = json.loads(raw or "[]")

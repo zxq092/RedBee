@@ -860,6 +860,9 @@ async function renderTaskArtifacts(msgs, sid){
       row.appendChild(el('span','artifact-stat', `${smap[t.status]||t.status} · ${t.findings||0} 条发现`));
       const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
                         boards[i] ? findingsSummary(boards[i]) : ''].filter(Boolean);
+      // 失败/中断任务附上原因摘要（如"目标不可达...""网关重启中断"）
+      if ((t.status === 'runtime_error' || t.status === 'interrupted') && t.runtime_error_summary)
+        sumParts.push(t.runtime_error_summary.length > 90 ? t.runtime_error_summary.slice(0,90)+'…' : t.runtime_error_summary);
       if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
       const rb = el('button','tbtn','⬇ 报告');
       rb.onclick = async ()=>{

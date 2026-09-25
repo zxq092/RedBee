@@ -25,6 +25,24 @@ jobs:
       - name: Run tests
         run: cd platform && python -m pytest tests/ -q
 
+      # 前端是手写单文件(index.html)，提交前先校验内嵌 JS，防止改坏页面
+      - name: Frontend JS syntax check
+        run: |
+          python - <<'PY'
+          import re
+          h = open('platform/pi_meta/web/index.html', encoding='utf-8').read()
+          js = '\n'.join(re.findall(r'<script>(.*?)</script>', h, re.S))
+          open('/tmp/check.js', 'w', encoding='utf-8').write(js)
+          PY
+          node --check /tmp/check.js
+
+      # 启动/部署 shell 脚本静态检查
+      - name: Shellcheck scripts
+        run: |
+          for f in platform/run.sh platform/start_redkb.sh platform/start_pimeta.sh platform/guard_redkb.sh; do
+            shellcheck -S warning "$f"
+          done
+
   # ---------- 构建并发布镜像到 GHCR（打 tag 时触发）----------
   build-push:
     if: startsWith(github.ref, 'refs/tags/v')

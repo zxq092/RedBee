@@ -439,9 +439,11 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
            "assigned_modules": coverage["assigned_modules"], "target": coverage["target"],
            "model": metadata.get("model") or "RedBee"}
     final_status = "cancelled" if cancelled else ("runtime_error" if run_error else "done")
+    # 持久化失败原因（runtime_error_summary），前端状态行/任务记录据此展示"为什么失败/中断"
     sessions.save_task_metadata(
         task_id, target, target_id or metadata.get("target_id", ""), metadata.get("model", ""),
         list(agents), agg["assigned_modules"], final_status,
+        runtime_error_summary=(run_error[:200] if (run_error and not cancelled) else ""),
         session_id=sid)
     sessions.save_report(sid, task, target, agg["model"], report_md,
                          {"task_id": task_id, "total": total,

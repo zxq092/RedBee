@@ -10,13 +10,15 @@
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3441;
     --text:#e6edf3; --muted:#8b949e; --accent:#4f8cff; --accent2:#5ad1a4;
     --red:#ff5c5c; --yellow:#ffc247; --purple:#b083f0; --green:#7ee787;
-    /* 语义化（供白天模式覆盖） */
-    --hover:var(--hover); --code-bg:var(--code-bg); --code-border:var(--code-border);
-    --card-bg:var(--card-bg); --board-bg:var(--board-bg); --chip-bg:var(--chip-bg);
-    --blue:var(--blue); --blue-soft:var(--blue-soft);
-    --danger-bg:var(--danger-bg); --danger-border:var(--danger-border); --danger-text:var(--danger-text);
-    --muted2:var(--muted2); --pill-bg:var(--pill-bg); --toast-bg:var(--pill-bg); --map-dot:var(--map-dot);
-    --sel:var(--sel); --selbar:var(--selbar); --sb-thumb:var(--sb-thumb);
+    /* 语义化（暗色值；白天模式在 [data-theme=light] 覆盖）。
+       ⚠️ 必须写具体色值——自引用 var 是 CSS 循环，计算为 invalid，
+       会导致漏洞板背景/标题色/选中态等全部静默失效（曾踩坑） */
+    --hover:#1c2330; --code-bg:#0d1117; --code-border:#30363d;
+    --card-bg:#161b22; --board-bg:#0d1117; --chip-bg:#2a3441;
+    --blue:#79c0ff; --blue-soft:#a5d8ff;
+    --danger-bg:#3d1f24; --danger-border:#6e3237; --danger-text:#ff7b72;
+    --muted2:#7d8590; --pill-bg:#21262d; --toast-bg:#30363d; --map-dot:#8b949e;
+    --sel:#1f2a3a; --selbar:#263043; --sb-thumb:#3a4553;
   }
   /* ---- 白天模式 ---- */
   [data-theme="light"] {
@@ -24,7 +26,7 @@
     --text:#24292f; --muted:var(--muted2); --accent:#0969da; --accent2:#1a7f37;
     --red:#cf222e; --yellow:#9a6700; --purple:#8250df; --green:#1a7f37;
     --hover:#eaeef2; --code-bg:#ffffff; --code-border:#d0d7de;
-    --card-bg:#ffffff; --board-bg:#f6f8fa; --chip-bg:#d1d9e0;
+    --card-bg:#ffffff; --board-bg:#e9eef5; --chip-bg:#d1d9e0;
     --blue:#0969da; --blue-soft:#0550ae;
     --danger-bg:#ffebe9; --danger-border:#ffaba8; --danger-text:#cf222e;
     --muted2:#59636e; --pill-bg:#eaeef2; --toast-bg:#6e7781; --map-dot:#8c959f;

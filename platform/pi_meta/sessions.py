@@ -36,6 +36,8 @@ def _connect():
         "runtime_error_summary": "TEXT",
         "model_override": "TEXT",
         "session_id": "TEXT",
+        # 原始任务文本（全局任务视图展示 + 重跑按钮原样重派）
+        "task_text": "TEXT",
     }
     existing = {row[1] for row in cur.execute("PRAGMA table_info(task_metadata)").fetchall()}
     for name, kind in runtime_columns.items():
@@ -170,15 +172,16 @@ def save_task_metadata(task_id: str, target: str = "", target_id: str = "", mode
                         status: str = "running", runtime_model: str = "", runtime_id: str = "",
                         degraded_from: str = "", degraded_chain: str = "",
                         runtime_error_code: str = "", runtime_error_summary: str = "",
-                        model_override: str = "", session_id: str = "") -> None:
+                        model_override: str = "", session_id: str = "", task_text: str = "") -> None:
     conn = _connect()
     cur = conn.cursor()
     now = utcnow()
+    # task_text 只在首次 INSERT 时写入，UPDATE SET 不含它 → 后续状态更新不覆盖原始文本
     cur.execute("""INSERT INTO task_metadata
         (task_id,target,target_id,model,agents,assigned_modules,status,created_at,updated_at,
          runtime_model,runtime_id,degraded_from,degraded_chain,runtime_error_code,
-         runtime_error_summary,model_override,session_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         runtime_error_summary,model_override,session_id,task_text)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(task_id) DO UPDATE SET
         target=excluded.target, target_id=excluded.target_id, model=excluded.model,
         agents=excluded.agents, assigned_modules=excluded.assigned_modules,
@@ -192,7 +195,7 @@ def save_task_metadata(task_id: str, target: str = "", target_id: str = "", mode
          json.dumps(agents or [], ensure_ascii=False),
          json.dumps(assigned_modules or [], ensure_ascii=False), status, now, now,
          runtime_model, runtime_id, degraded_from, degraded_chain,
-         runtime_error_code, runtime_error_summary, model_override, session_id))
+         runtime_error_code, runtime_error_summary, model_override, session_id, task_text))
     conn.commit()
     conn.close()
 
@@ -203,7 +206,7 @@ def get_task_metadata(task_id: str) -> Dict[str, Any]:
         row = conn.execute(
             "SELECT task_id,target,target_id,model,agents,assigned_modules,status,created_at,updated_at,"
             "runtime_model,runtime_id,degraded_from,degraded_chain,runtime_error_code,"
-            "runtime_error_summary,model_override,session_id FROM task_metadata WHERE task_id=?", (task_id,)).fetchone()
+            "runtime_error_summary,model_override,session_id,task_text FROM task_metadata WHERE task_id=?", (task_id,)).fetchone()
     finally:
         conn.close()
     if not row:
@@ -222,7 +225,7 @@ def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:
     conn = _connect()
     cur = conn.cursor()
     q = ("SELECT task_id, session_id, target, target_id, model, status, created_at, updated_at, "
-         "agents, assigned_modules, runtime_error_summary FROM task_metadata")
+         "agents, assigned_modules, runtime_error_summary, task_text FROM task_metadata")
     args: list = []
     if status:
         q += " WHERE status=?"
@@ -236,7 +239,7 @@ def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:
     for r in rows:
         t = {"task_id": r[0], "session_id": r[1] or "", "target": r[2], "target_id": r[3],
              "model": r[4], "status": r[5], "created_at": r[6], "updated_at": r[7],
-             "runtime_error_summary": r[10] or ""}
+             "runtime_error_summary": r[10] or "", "task_text": r[11] or ""}
         for key, raw in (("agents", r[8]), ("assigned_modules", r[9])):
             try:
                 t[key] = json.loads(raw or "[]")

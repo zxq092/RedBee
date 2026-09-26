@@ -32,6 +32,19 @@ def _budget_seconds() -> int:
     return int(cfg_env("PIMETA_TASK_BUDGET", "5400"))
 
 
+def outer_slot_modules(target: str, task: str, target_id: str = "") -> list[str]:
+    """外层槽位模块列表。
+
+    v2（默认）：引擎内部已做全模块 fan-out（root-decide/force-all 全派候选模块），
+    外层只需 1 个槽位。旧版外层 fan-out N 个模块槽位、每个槽位把全部 9 模块流水线
+    重跑一遍 → N 倍冗余重跑（R10 实测 2 波×9=18 个子 agent 烧掉整轮预算）。
+    v1（HINSE_V2=0 单 agent）：每槽位打一个模块，保留外层 fan-out。"""
+    mods = planner.modules_for(target, task, target_id)
+    if cfg_env("HINSE_V2", "1") not in ("", "0", "false", "False"):
+        return mods[:1]
+    return mods
+
+
 async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
                       on_event: Optional[Callable[[str, str], None]] = None,
                       on_progress: Optional[Callable[[dict], None]] = None,
@@ -46,7 +59,7 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
     slots = [(i, a) for i, a in enumerate(agents or ["RedBee"])]
     from agents.tools import resolve_target_id
     normalized_target_id = resolve_target_id(target, target_id)
-    mod_q: deque = deque(planner.modules_for(target, task, normalized_target_id))
+    mod_q: deque = deque(outer_slot_modules(target, task, normalized_target_id))
     planned_modules = list(mod_q)
     ver_q: deque = deque()            # 待确认 {fid, f, exclude_slot}(槽位级, 支持同名引擎多 flow)
     busy: dict[int, asyncio.Task] = {}
@@ -72,7 +85,7 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
         [m for m in planned_modules if m in planner.MODULES], "running",
         runtime_model=runtime.runtime.model, runtime_id=runtime.runtime_id,
         degraded_from=runtime.degraded_from or "", degraded_chain=json.dumps(runtime.degraded_chain),
-        model_override="", session_id=session_id)
+        model_override="", session_id=session_id, task_text=task)
 
     def emit(kind: str, detail: str) -> None:
         if on_event:

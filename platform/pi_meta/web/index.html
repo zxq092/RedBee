@@ -100,7 +100,26 @@
 
   /* ---- 对话区 ---- */
   #content { flex:1; display:flex; flex-direction:column; min-height:0; position:relative; }
+  #chatView { flex:1; display:flex; flex-direction:column; min-height:0; }
   #msgs { flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:12px; }
+  /* 全局任务总览视图 */
+  #taskView { flex:1; display:flex; flex-direction:column; min-height:0; }
+  .tv-head { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--panel);
+             border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .tv-title { font-weight:700; font-size:14px; }
+  .tv-count { margin-left:auto; font-size:12px; }
+  .tv-wrap { flex:1; overflow:auto; min-height:0; }
+  .tv-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .tv-table th { position:sticky; top:0; background:var(--panel2); text-align:left; padding:8px 10px;
+                 border-bottom:1px solid var(--border); color:var(--muted); font-size:11.5px; white-space:nowrap; z-index:1; }
+  .tv-table td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .tv-table tbody tr:hover td { background:var(--hover); }
+  .tv-tid { font-family:ui-monospace,monospace; font-size:11px; color:var(--muted); }
+  .tv-tt { display:block; max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
+  .tv-acts { display:flex; gap:6px; white-space:nowrap; }
+  /* 从任务总览跳转定位：目标记录行闪烁高亮 */
+  @keyframes recflash { 0%{background:var(--sel);} 100%{background:transparent;} }
+  .flash-rec { animation:recflash 2s ease-out; border-radius:6px; }
   .msg { max-width:920px; padding:11px 14px; border-radius:12px; line-height:1.6; font-size:13.5px;
          white-space:pre-wrap; word-break:break-word; }
   .msg.user { align-self:flex-end; background:var(--accent); color:#fff; }
@@ -380,6 +399,8 @@
       <label data-i18n="selectAll" class="selall" title="勾选后批量删除"><input type="checkbox" id="selectAll"> 全选</label>
       <button data-i18n="delSel" class="tbtn bulkd" id="bulkDelBtn" disabled>删除选中 (0)</button>
     </div>
+    <button class="tbtn" id="taskViewBtn" style="margin:0 12px 6px;padding:7px;width:calc(100% - 24px)"
+            title="跨会话查看所有任务：按状态/目标/文本过滤；点行打开对应会话并定位任务记录；↻ 一键重跑">📋 任务总览</button>
     <div id="sessionList"></div>
     <footer data-i18n="loadingModels" id="modelFooter">加载模型…</footer>
   </aside>
@@ -402,6 +423,7 @@
     </div>
 
     <div id="content">
+      <div id="chatView">
       <div id="msgs"><div id="empty">新建会话或选择左侧历史会话，开始渗透任务</div></div>
       <button data-i18n="toBottom" id="followJump">↓ 回到底部</button>
       <div id="inputbar">
@@ -417,6 +439,32 @@
           <option value="">全部模块</option>
         </select>
         <button class="send" id="sendBtn">发送</button>
+        </div>
+      </div>
+      </div>
+      <!-- 全局任务总览视图（侧栏 📋 切换） -->
+      <div id="taskView" style="display:none">
+        <div class="tv-head">
+          <span class="tv-title">任务总览</span>
+          <select id="tvStatus" title="按状态过滤">
+            <option value="">全部状态</option>
+            <option value="running">运行中</option>
+            <option value="done">完成</option>
+            <option value="cancelled">已停止</option>
+            <option value="runtime_error">失败</option>
+            <option value="interrupted">中断</option>
+          </select>
+          <input id="tvTarget" placeholder="按目标过滤…" style="width:170px">
+          <input id="tvSearch" placeholder="任务文本/ID 搜索…" style="width:170px">
+          <span class="tv-count muted"></span>
+        </div>
+        <div class="tv-wrap">
+          <table class="tv-table">
+            <thead><tr>
+              <th>任务</th><th>状态</th><th>目标</th><th>发现</th><th>模块</th><th>耗时</th><th>时间</th><th>操作</th>
+            </tr></thead>
+            <tbody id="tvBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -909,6 +957,125 @@ function startRename(sessEl, s){
 }
 $('#sessSearch').oninput = ()=> refreshSessions();
 
+/* ---------- 全局任务总览（侧栏 📋 切换；按状态/目标/文本过滤；行内 重跑/打开） ---------- */
+let tvTimer = null;
+function showTaskView(){
+  $('#chatView').style.display='none';
+  $('#taskView').style.display='flex';
+  $('#taskViewBtn').classList.add('on');
+  renderTaskTable();
+  if (!tvTimer) tvTimer = setInterval(()=>{ if ($('#taskView').style.display!=='none') renderTaskTable(); }, 10000);
+}
+function showChatView(){
+  $('#taskView').style.display='none';
+  $('#chatView').style.display='';
+  $('#taskViewBtn').classList.remove('on');
+  if (tvTimer){ clearInterval(tvTimer); tvTimer=null; }
+}
+$('#taskViewBtn').onclick = ()=>{ $('#taskView').style.display==='none' ? showTaskView() : showChatView(); };
+$('#tvStatus').onchange = renderTaskTable;
+$('#tvTarget').oninput = renderTaskTable;
+$('#tvSearch').oninput = renderTaskTable;
+
+async function renderTaskTable(){
+  const body = $('#tvBody');
+  let tasks;
+  try { tasks = await api('/api/tasks'); } catch(e){ return; }
+  const st = $('#tvStatus').value, tg = $('#tvTarget').value.trim().toLowerCase(),
+        kw = $('#tvSearch').value.trim().toLowerCase();
+  const list = (tasks||[]).filter(t=>
+    (!st || t.status===st) &&
+    (!tg || String(t.target||'').toLowerCase().includes(tg) || String(t.target_id||'').toLowerCase().includes(tg)) &&
+    (!kw || String(t.task_text||'').toLowerCase().includes(kw) || t.task_id.includes(kw)));
+  document.querySelector('.tv-count').textContent = `${list.length} / ${(tasks||[]).length} 个任务`;
+  body.innerHTML='';
+  if (!list.length){
+    const tr = el('tr');
+    const td = el('td','muted','没有符合过滤条件的任务');
+    td.colSpan=8; td.style.textAlign='center'; td.style.padding='24px';
+    tr.appendChild(td); body.appendChild(tr); return;
+  }
+  list.forEach(t=>{
+    const tr = el('tr');
+    tr.style.cursor='pointer';
+    // 任务：ID + 任务文本（截断，hover 全文）
+    const td1 = el('td');
+    td1.appendChild(el('span','tv-tid', t.task_id.slice(0,10)));
+    if (t.task_text)
+      td1.appendChild(Object.assign(el('span','tv-tt', t.task_text.length>64 ? t.task_text.slice(0,64)+'…' : t.task_text), {title:t.task_text}));
+    else td1.appendChild(el('span','tv-tt muted','(旧任务，未记录文本)'));
+    tr.appendChild(td1);
+    // 状态
+    const stCls = t.status==='runtime_error'||t.status==='extraction_error'||t.status==='interrupted' ? 'error' : t.status;
+    const tdSt = el('td');
+    tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP[t.status]||t.status));
+    tr.appendChild(tdSt);
+    // 目标 / 发现 / 模块
+    tr.appendChild(el('td','', t.target || t.target_id || '-'));
+    tr.appendChild(el('td','', String(t.findings||0)));
+    tr.appendChild(el('td','', (t.modules_total||0) ? `${t.modules_done||0}/${t.modules_total}` : '-'));
+    tr.appendChild(el('td','', fmtDur(t.created_at, t.updated_at) || '-'));
+    tr.appendChild(el('td','muted', new Date(t.created_at).toLocaleString()));
+    // 操作：重跑 / 打开
+    const acts = el('div','tv-acts');
+    const rr = el('button','tbtn','↻ 重跑');
+    rr.title='用原始任务文本原样重派（目标不变；该会话运行中则拒绝）';
+    rr.onclick = e=>{ e.stopPropagation(); rerunTask(t); };
+    const op = el('button','tbtn','打开');
+    op.title='打开对应会话并定位该任务的记录/执行卡';
+    op.onclick = e=>{ e.stopPropagation(); openTaskInSession(t); };
+    acts.append(rr, op);
+    const tdA = el('td'); tdA.appendChild(acts); tr.appendChild(tdA);
+    tr.onclick = ()=> openTaskInSession(t);
+    body.appendChild(tr);
+  });
+}
+
+/* 打开会话并定位到该任务（内联记录行或执行卡）：滚动居中 + 闪烁高亮 */
+async function openTaskInSession(t){
+  showChatView();
+  if (t.session_id) await openSession(t.session_id);
+  const rec = document.querySelector(`.artifact-row[data-task="${t.task_id}"]`) ||
+              document.querySelector(`.livecard[data-task="${t.task_id}"]`) ||
+              (t.status==='running' ? $('#msgs').querySelector('.livecard') : null);
+  if (rec){
+    rec.scrollIntoView({behavior:'smooth', block:'center'});
+    rec.classList.remove('flash-rec'); void rec.offsetWidth; rec.classList.add('flash-rec');
+    setTimeout(()=>rec.classList.remove('flash-rec'), 2200);
+  }
+}
+
+/* 重跑：原任务文本原样重派（目标不变）。task_text 缺失的旧任务 → 从会话派发消息解析兜底 */
+async function rerunTask(t){
+  if (t.status==='running'){ toast('该任务在运行中'); return; }
+  if (runningTasks[t.session_id]){ toast('该会话有任务在运行，等完成或先停止'); return; }
+  let text = String(t.task_text||'');
+  if (!text && t.session_id){
+    try { text = extractTaskText(await api(`/api/sessions/${t.session_id}/messages`), t.created_at); } catch(e){}
+  }
+  if (!text){ toast('找不到原始任务文本（会话消息缺失）。请手动输入任务重新派发'); return; }
+  await openTaskInSession(t);
+  if (runningTasks[t.session_id]){ toast('该会话有任务在运行，等完成或先停止'); return; }
+  $('#taskInput').value = text;
+  if (t.target) $('#targetInput').value = t.target;
+  await sendTask();
+}
+/* 从会话消息里找与任务时间最近的派发消息（"任务: {text}  目标: {target}"），抽取任务文本 */
+function extractTaskText(messages, taskCreatedAt){
+  const t0 = Date.parse(taskCreatedAt);
+  let best = null, bestD = Infinity;
+  for (const m of messages||[]){
+    if (m.role!=='user') continue;
+    const c = String(m.content||'');
+    if (!/^任务: [\s\S]+  目标: /.test(c)) continue;
+    const d = Math.abs(Date.parse(m.created_at) - t0);
+    if (d < bestD){ best = c; bestD = d; }
+  }
+  if (!best || bestD > 300000) return '';
+  const m = best.match(/^任务: [\s\S]+  目标: /);
+  return best.slice(0, m.index + m[0].length - '  目标: '.length).replace(/^任务: /,'');
+}
+
   async function openSession(sid){
     saveCurSessParams();          // 切走前，保存当前会话的参数
     curSid = sid;
@@ -999,6 +1166,7 @@ const TASK_SMAP = {done:'完成', cancelled:'已停止', runtime_error:'失败',
    返回 wrapper div：行 + 隐藏展开板，调用方直接 append 即可 */
 function recordRow(t, findings){
   const row = el('div','artifact-row');
+  row.dataset.task = t.task_id;   // 任务总览跳转定位用
   row.appendChild(el('span','artifact-id', t.task_id));
   row.appendChild(el('span','artifact-stat', `${TASK_SMAP[t.status]||t.status} · ${t.findings||0} 条发现`));
   const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
@@ -1010,6 +1178,9 @@ function recordRow(t, findings){
   const rb = reportBtn(t);
   const lb = el('button','tbtn','⬇ 日志');
   lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
+  const rr = el('button','tbtn','↻ 重跑');
+  rr.title='用原始任务文本原样重派（目标不变；该会话运行中则拒绝）';
+  rr.onclick = ()=> rerunTask(t);
   // 📋 查看发现：懒建展开板（复用 buildBoardList，行内可手动 误报/确认/恢复）
   if (findings && findings.length){
     const detail = el('div','record-detail');
@@ -1024,12 +1195,12 @@ function recordRow(t, findings){
       detail.style.display = show?'block':'none';
       vb.classList.toggle('on', show);
     };
-    row.append(vb, rb, lb);
+    row.append(vb, rb, lb, rr);
     const wrap = el('div','artifact-wrap');
     wrap.append(row, detail);
     return wrap;
   }
-  row.append(rb, lb);
+  row.append(rb, lb, rr);
   return row;
 }
 /* 报告按钮：页内预览（modal 内可下载）；无报告时提示 */
@@ -1164,6 +1335,7 @@ function createLiveCard(taskId, afterEl){
   // afterEl：内联挂在该元素后（openSession 恢复时挂到对应任务消息下）；缺省追加到底部
   if (liveState && liveState.taskId === taskId && liveState.card.parentNode) liveState.card.remove();
   const card = el('div','livecard');
+  card.dataset.task = taskId;   // 任务总览跳转定位用
   const head = el('div','lc-head');
   const dot = el('span','lc-dot');
   const statusEl = el('span','lc-status st-running','运行中');

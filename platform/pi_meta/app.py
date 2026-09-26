@@ -243,6 +243,11 @@ async def run_task(payload: Request):
 
     if not sid:
         return JSONResponse({"error": "session_id required"}, status_code=400)
+    # 一会话一任务（串行模型）：同会话已有 running 任务 → 拒绝，防双击派发/跨标签页并发
+    if sessions.has_running_task(sid):
+        return JSONResponse(
+            {"error": "该会话已有任务在运行，请等待完成或先停止（一会话一任务）"},
+            status_code=409)
 
     sessions.ensure_session(sid, title=f"任务: {task[:40]}")
     sessions.autotitle_if_default(sid, f"任务: {task[:30]}")

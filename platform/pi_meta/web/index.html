@@ -877,6 +877,7 @@ $('#sessSearch').oninput = ()=> refreshSessions();
     curSid = sid;
     loadParamsToInputs(sid);      // 加载目标会话的参数
     const msgs=$('#msgs'); msgs.innerHTML='';
+    let runningMsgEl = null;   // running 任务对应的用户消息元素（执行卡内联挂它下面）
     try {
       const ms = await api(`/api/sessions/${sid}/messages`);
       // 兼容旧数据：老版本完成时落库的"纯文本结论"（任务 tXXX 编排完成/已停止/执行失败:
@@ -884,19 +885,56 @@ $('#sessSearch').oninput = ()=> refreshSessions();
       const visible = ms.filter(m => !(m.role === 'assistant'
         && /^任务 t[0-9a-f]+ (编排完成|已停止|执行失败)/.test(String(m.content || ''))));
       if (!visible.length) msgs.appendChild(emptyState());
-      visible.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
-      await renderTaskArtifacts(msgs, sid);
+      // 每条任务消息下内联挂该任务的任务记录（一一对应：同会话 created_at 最近匹配，
+      // 会话内任务串行 → 消息与任务时间序天然交替，贪心最近匹配不会错配）
+      const allTasks = (await api('/api/tasks')).filter(t=>t.session_id===sid);
+      const pool = allTasks.slice().sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
+      const matchedIds = new Set();
+      for (const m of visible){
+        msgs.appendChild(renderMsg(m.role, m.content));
+        // 派发消息固定格式 "任务: {task}  目标: {target}"（steer 消息不带该结构，不会误配）
+        // 任务文本可能多行 → 用 [\s\S] 跨换行
+        if (m.role!=='user' || !/^任务: [\s\S]+  目标: /.test(String(m.content||''))) continue;
+        const t0 = Date.parse(m.created_at);
+        let best=null, bestD=Infinity;
+        for (const t of pool){
+          if (matchedIds.has(t.task_id)) continue;
+          const d = Date.parse(t.created_at) - t0;
+          if (d >= -60000 && d < bestD){ best=t; bestD=d; }
+        }
+        if (!best) continue;
+        matchedIds.add(best.task_id);
+        if (best.status==='running'){ runningMsgEl = msgs.lastChild; continue; }
+        let findings=null;
+        try { const b = await api(`/api/task/${best.task_id}/board`); findings=(b&&b.findings)||[]; } catch(e){}
+        const box = el('div','msg assistant report-msg');
+        box.appendChild(recordRow(best, findings));
+        msgs.appendChild(box);
+      }
+      // 兜底：未匹配到消息的已结束任务（消息被删等极端情况）→ 末尾统一块
+      const unmatched = allTasks.filter(t=>t.status!=='running' && !matchedIds.has(t.task_id));
+      if (unmatched.length){
+        const boards = await Promise.all(unmatched.map(async t=>{
+          try { const b = await api(`/api/task/${t.task_id}/board`); return (b&&b.findings)||[]; } catch(e){ return null; }
+        }));
+        const box = el('div','msg assistant report-msg');
+        const h = el('div','rep-head');
+        h.appendChild(el('span','status-pill st-done', `任务记录 · ${unmatched.length}`));
+        box.appendChild(h);
+        unmatched.forEach((t,i)=>box.appendChild(recordRow(t, boards[i])));
+        msgs.appendChild(box);
+      }
       scrollBottom(true);
     } catch(e){ msgs.appendChild(renderMsg('sys', '加载会话失败: '+e.message)); }
     const rt = runningTasks[sid];
     if (rt){
       if (rt !== curTaskId){
-        // 该会话有进行中任务且当前流不属于它（含无活动流）：接流
-        createLiveCard(rt);
+        // 该会话有进行中任务且当前流不属于它（含无活动流）：接流（执行卡内联到对应任务消息下）
+        createLiveCard(rt, runningMsgEl);
         startStream(rt, sid);
       } else {
         // 已连接该会话的流：仅重建执行卡
-        createLiveCard(rt);
+        createLiveCard(rt, runningMsgEl);
       }
     } else if (curTaskId){
       // 该会话无进行中任务：断开流、隐藏状态栏
@@ -917,46 +955,31 @@ $('#sessSearch').oninput = ()=> refreshSessions();
    }
  }
 
-/* 报告/日志中心：任务结束后从会话内随时可取（刷新/重开不丢） */
-async function renderTaskArtifacts(msgs, sid){
-  try {
-    const tasks = (await api('/api/tasks')).filter(t=>t.session_id===sid && t.status!=='running');
-    if (!tasks.length) return;
-    const smap = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
-    const box = el('div','msg assistant report-msg');
-    const h = el('div','rep-head');
-    h.appendChild(el('span','status-pill st-done', `任务记录 · ${tasks.length}`));
-    box.appendChild(h);
-    const shown = tasks.slice(0,5);
-    const boards = await Promise.all(shown.map(async t=>{
-      try { const b = await api(`/api/task/${t.task_id}/board`); return (b&&b.findings)||[]; } catch(e){ return null; }
-    }));
-    shown.forEach((t,i)=>{
-      const row = el('div','artifact-row');
-      row.appendChild(el('span','artifact-id', t.task_id));
-      row.appendChild(el('span','artifact-stat', `${smap[t.status]||t.status} · ${t.findings||0} 条发现`));
-      const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
-                        boards[i] ? findingsSummary(boards[i]) : ''].filter(Boolean);
-      // 失败/中断任务附上原因摘要（如"目标不可达...""网关重启中断"）
-      if ((t.status === 'runtime_error' || t.status === 'interrupted') && t.runtime_error_summary)
-        sumParts.push(t.runtime_error_summary.length > 90 ? t.runtime_error_summary.slice(0,90)+'…' : t.runtime_error_summary);
-      if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
-      const rb = el('button','tbtn','⬇ 报告');
-      rb.onclick = async ()=>{
-        try {
-          const rep = await api(`/api/task/${t.task_id}/report`);
-          if (rep && rep.report_md) downloadReport(t.task_id, rep.report_md);
-          else toast('该任务无报告（无 findings）');
-        } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
-      };
-      const lb = el('button','tbtn','⬇ 日志');
-      lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
-      row.append(rb, lb);
-      box.appendChild(row);
-    });
-    const live = msgs.querySelector('.livecard');
-    if (live) msgs.insertBefore(box, live); else msgs.appendChild(box);
-  } catch(e){}
+/* 任务记录行：内联挂每条任务消息下（openSession）/ 末尾兜底块复用。
+   报告/日志从会话内随时可取（刷新/重开不丢） */
+const TASK_SMAP = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
+function recordRow(t, findings){
+  const row = el('div','artifact-row');
+  row.appendChild(el('span','artifact-id', t.task_id));
+  row.appendChild(el('span','artifact-stat', `${TASK_SMAP[t.status]||t.status} · ${t.findings||0} 条发现`));
+  const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
+                    findings ? findingsSummary(findings) : ''].filter(Boolean);
+  // 失败/中断任务附上原因摘要（如"目标不可达...""网关重启中断"）
+  if ((t.status === 'runtime_error' || t.status === 'interrupted') && t.runtime_error_summary)
+    sumParts.push(t.runtime_error_summary.length > 90 ? t.runtime_error_summary.slice(0,90)+'…' : t.runtime_error_summary);
+  if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
+  const rb = el('button','tbtn','⬇ 报告');
+  rb.onclick = async ()=>{
+    try {
+      const rep = await api(`/api/task/${t.task_id}/report`);
+      if (rep && rep.report_md) downloadReport(t.task_id, rep.report_md);
+      else toast('该任务无报告（无 findings）');
+    } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
+  };
+  const lb = el('button','tbtn','⬇ 日志');
+  lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
+  row.append(rb, lb);
+  return row;
 }
 
  async function newSession(){
@@ -1070,8 +1093,9 @@ $('#loginBtn').onclick = doLogin;
 /* ---------- 执行过程卡片（按模块分组 + 漏洞板区）---------- */
 const PHASES = ['pre-recon','recon','root-decide','exploit','report'];
 let boardTimer = null;
-function createLiveCard(taskId){
+function createLiveCard(taskId, afterEl){
   // 串行模型：每个任务一张独立执行卡，保留已定格的旧任务卡；仅当给同一 taskId 重复建卡时才移除旧卡
+  // afterEl：内联挂在该元素后（openSession 恢复时挂到对应任务消息下）；缺省追加到底部
   if (liveState && liveState.taskId === taskId && liveState.card.parentNode) liveState.card.remove();
   const card = el('div','livecard');
   const head = el('div','lc-head');
@@ -1117,7 +1141,7 @@ function createLiveCard(taskId){
   const boardWrap = el('div','lc-board');
   boardWrap.append(boardHead, boardEl);
   card.append(head, mapEl, modsEl, boardWrap);
-  $('#msgs').appendChild(card);
+  if (afterEl && afterEl.parentNode) afterEl.after(card); else $('#msgs').appendChild(card);
   liveState = {card, dot, statusEl, meta, followBtn, modsEl, mapEl, stepper,
                 boardEl, boardCount, boardRepBtn, boardLogBtn,
                 mods:{}, lastSnap:{}, calls:0, taskId, phase:'', seenMods:{}, doneMods:{},
@@ -1735,20 +1759,13 @@ function autogrow(){
 
 /* ---------- 进行中任务恢复（刷新后）---------- */
   async function adoptRunningTask(t){
-    curSid = t.session_id;
-    if (t.target){ $('#targetInput').value = t.target; $('#targetInput').disabled = true; $('#targetInput').placeholder = t.target; }
-    else { $('#targetInput').value=''; $('#targetInput').disabled=false; }
-  const msgs=$('#msgs'); msgs.innerHTML='';
-  try {
-    const ms = await api(`/api/sessions/${t.session_id}/messages`);
-    ms.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
-    await renderTaskArtifacts(msgs, t.session_id);
-  } catch(e){}
-  $('#msgs').appendChild(renderMsg('sys','检测到进行中的任务 '+t.task_id+'，已恢复实时显示'));
-  createLiveCard(t.task_id);
-  startStream(t.task_id, t.session_id);
-  refreshSessions();
-}
+    // openSession 统一处理：消息 + 任务记录内联渲染 + running 任务接流（执行卡挂到对应任务消息下）
+    await openSession(t.session_id);
+    const sys = renderMsg('sys','检测到进行中的任务 '+t.task_id+'，已恢复实时显示');
+    const card = $('#msgs').querySelector('.livecard');
+    if (card) $('#msgs').insertBefore(sys, card); else $('#msgs').appendChild(sys);
+    scrollBottom(true);
+  }
 async function restoreTasks(retry=true){
   let tasks;
   try { tasks = await api('/api/tasks?status=running'); } catch(e){ return; }

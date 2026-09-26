@@ -313,6 +313,9 @@
   #taskInput:focus { border-color:var(--accent); }
   .send { background:var(--accent); color:#fff; border:none; border-radius:10px; padding:12px 20px;
           font-size:14px; cursor:pointer; height:52px; }
+  /* 运行中：按钮变"注入指令"（steer），与"发送新任务"视觉区分 */
+  .send.steering { background:#a07818; }
+  .send.steering:hover { filter:brightness(1.15); }
   .send:disabled { opacity:.5; cursor:not-allowed; }
 
   /* ---- 浮动控件 ---- */
@@ -1432,15 +1435,21 @@ function _fmtRunStatus(){
 function updateSendBtn(){
   const b = $('#sendBtn');
   const rs = $('#runStatus');
+  const ta = $('#taskInput');
   if (curTaskId){
-    // 状态栏显示（方块动画；发送按钮保持"发送"职责）
+    // 运行中：发送按钮变"注入指令"（steer 显性化）+ placeholder 提示当前语义
+    b.textContent='注入指令'; b.classList.add('steering');
+    b.title='运行中：此消息将注入正在运行的 agent（下一个 LLM 轮次生效）';
+    if (ta) ta.placeholder='给运行中 agent 下指令（下一轮生效），如：别打 sqli 了，专注 xss';
+    // 状态栏显示（方块动画）
     if (rs){ rs.classList.add('on'); _fmtRunStatus(); }
     if (runStatusTimer === null){
       runStatusTimer = setInterval(()=>{ if (curTaskId && $('#runStatus')) _fmtRunStatus(); }, 1000);
     }
   }
   else {
-    b.textContent='发送'; b.classList.remove('stopping'); b.title='发送渗透任务';
+    b.textContent='发送'; b.classList.remove('stopping','steering'); b.title='发送渗透任务';
+    if (ta) ta.placeholder='描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证';
     if (rs) rs.classList.remove('on');
     if (runStatusTimer){ clearInterval(runStatusTimer); runStatusTimer=null; }
   }

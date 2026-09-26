@@ -316,6 +316,10 @@
   /* 运行中：按钮变"注入指令"（steer），与"发送新任务"视觉区分 */
   .send.steering { background:#a07818; }
   .send.steering:hover { filter:brightness(1.15); }
+  /* 指令作用域下拉（仅 steer 模式显示，与"注入指令"按钮同色系） */
+  #steerScope { height:52px; background:#8a6816; color:#fff; border:none; border-radius:10px;
+                padding:0 10px; font-size:13px; cursor:pointer; max-width:150px; flex-shrink:0; }
+  #steerScope:hover { filter:brightness(1.15); }
   .send:disabled { opacity:.5; cursor:not-allowed; }
 
   /* ---- 浮动控件 ---- */
@@ -374,6 +378,9 @@
         </div>
         <div class="ib-row">
         <textarea id="taskInput" placeholder="描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证"></textarea>
+        <select id="steerScope" title="指令作用域：全部=广播给所有运行中模块；选具体模块=只注入该模块专员" style="display:none">
+          <option value="">全部模块</option>
+        </select>
         <button class="send" id="sendBtn">发送</button>
         </div>
       </div>
@@ -1441,6 +1448,8 @@ function updateSendBtn(){
     b.textContent='注入指令'; b.classList.add('steering');
     b.title='运行中：此消息将注入正在运行的 agent（下一个 LLM 轮次生效）';
     if (ta) ta.placeholder='给运行中 agent 下指令（下一轮生效），如：别打 sqli 了，专注 xss';
+    const ss = $('#steerScope');
+    if (ss){ ss.style.display=''; ensureSteerScopeOptions(); }
     // 状态栏显示（方块动画）
     if (rs){ rs.classList.add('on'); _fmtRunStatus(); }
     if (runStatusTimer === null){
@@ -1450,9 +1459,30 @@ function updateSendBtn(){
   else {
     b.textContent='发送'; b.classList.remove('stopping','steering'); b.title='发送渗透任务';
     if (ta) ta.placeholder='描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证';
+    const ss = $('#steerScope');
+    if (ss){ ss.style.display='none'; ss.value=''; }
     if (rs) rs.classList.remove('on');
     if (runStatusTimer){ clearInterval(runStatusTimer); runStatusTimer=null; }
   }
+}
+/* 作用域下拉选项：优先取执行卡已见模块，其次 /meta 的 assigned_modules（懒加载，按 task 缓存） */
+let steerScopeLoadedFor = null;
+async function ensureSteerScopeOptions(){
+  const sel = $('#steerScope');
+  if (!sel || !curTaskId || steerScopeLoadedFor === curTaskId) return;
+  let mods = (liveState && liveState.taskId === curTaskId && liveState.mods) ? Object.keys(liveState.mods) : [];
+  if (!mods.length){
+    try {
+      const meta = await api(`/api/task/${curTaskId}/meta`);
+      mods = (meta && meta.assigned_modules) || [];
+    } catch(e){ mods = []; }
+  }
+  if (!mods.length || steerScopeLoadedFor === curTaskId) return;
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">全部模块</option>' +
+    mods.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if (mods.includes(keep)) sel.value = keep;
+  steerScopeLoadedFor = curTaskId;
 }
 function clearStream(){
   if (eventSource){ eventSource.close(); eventSource=null; }
@@ -1669,10 +1699,13 @@ async function sendSteer(){
   const _ta=$('#taskInput'); _ta.style.height='auto'; _ta.style.height='52px';
   $('#msgs').appendChild(renderMsg('user', text));
   try {
-    const r = await api(`/api/task/${curTaskId}/message`,{method:'POST',json:{text}});
+    const payload = {text};
+    const scope = $('#steerScope') && $('#steerScope').value;
+    if (scope) payload.modules = [scope];   // 定向指令：只注入该模块专员
+    const r = await api(`/api/task/${curTaskId}/message`,{method:'POST',json:payload});
     $('#msgs').appendChild(renderMsg('sys',
-      r.injected>0 ? `指令已注入 ${r.injected} 个运行中 agent（下一轮生效）`
-                   : '指令已收到（当前无运行中 agent，将在下一批子 agent 自动注入）'));
+      r.injected>0 ? `指令已注入 ${r.injected} 个运行中 agent（${scope?scope+' 模块':'全部模块'}，下一轮生效）`
+                   : `指令已收到（${scope?scope+' 模块':'全部模块'}；当前无运行中 agent，将在下一批子 agent 自动注入）`));
   } catch(e){
     $('#msgs').appendChild(renderMsg('error','指令注入失败: '+e.message));
   }

@@ -309,7 +309,7 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
     child.MAX_TURNS = child_max_turns  # type: ignore
     child.workdir = f"/work/{module}"
     child._build_initial_messages(target, module, task)
-    task_registry.register_agent(task_id, child)  # in-run steer：注册运行中 agent（同时吃进相位间隙积压指令）
+    task_registry.register_agent(task_id, child, module)  # in-run steer：注册运行中 agent（按模块继承相关指令）
     # 治"外层单模块 FOCUS AREA 泄漏进所有内层子 agent"：外层 build_exploit_prompt 把
     # "FOCUS AREA: sqli + work only within this focus area" 烤进 task 文本，_inhouse_run 却复用
     # 它派给全部模块子 agent → 所有 child 都被拽去打 sqli。这里剥离外层焦点，换成 child 自己的 module。

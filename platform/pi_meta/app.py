@@ -104,7 +104,7 @@ async def api_login(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as f:
-        return f.read()
+        return HTMLResponse(content=f.read(), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/agents")
@@ -229,8 +229,15 @@ async def run_task(payload: Request):
     agents = body.get("agents", []) or list(AGENT_META.keys())
 
     # 每任务参数覆盖（可选）：并发/模块数/轮次/预算/重试/侦察开关，只作用于本任务
-    from .real_dispatch import validate_task_params
-    task_params, param_errs = validate_task_params(body.get("params"))
+    # 契约位置是 body["params"] 对象；顶层同名字段作兜底（治调用方放错位置被静默丢弃）
+    from .real_dispatch import validate_task_params, TASK_PARAM_SPECS
+    raw_params = body.get("params")
+    if not isinstance(raw_params, dict):
+        raw_params = {}
+    for k in TASK_PARAM_SPECS:
+        if k not in raw_params and k in body:
+            raw_params[k] = body[k]
+    task_params, param_errs = validate_task_params(raw_params)
     if param_errs:
         print(f"[task:dispatch] params 剔除非法项: {param_errs}", flush=True)
 
@@ -670,10 +677,13 @@ async def task_cancel(task_id: str, request: Request):
 
 @app.post("/api/task/{task_id}/message")
 async def task_message(task_id: str, request: Request):
-    """飞行中指令（in-run steer）：注入任务全部运行中 agent，从各自下一个 LLM 轮次生效。
+    """飞行中指令（in-run steer）：注入任务运行中 agent，从各自下一个 LLM 轮次生效。
 
-    相位间隙（无 agent 在跑）时进缓冲，下一个子 agent 诞生时自动吃进。
-    body: {"text": "别再打 auth 了，去搞文件上传"}"""
+    body: {"text": "...", "modules": ["xss"]}（modules 可选）
+      modules 省略/空 → 全局指令（scope=all，所有运行中 agent 收）
+      modules=[...]  → 定向指令（仅指定模块的专员收，其他模块不被打扰）
+    相位间隙（无 agent 在跑）不丢：进任务级 steer 日志，之后诞生的 agent
+    注册时按作用域继承（整批新 agent 全覆盖）。"""
     denied = _check_auth(request)
     if denied is not None:
         return denied
@@ -687,16 +697,24 @@ async def task_message(task_id: str, request: Request):
     bg = _BG_TASKS.get(task_id)
     if bg is None or bg.done():
         return JSONResponse({"error": "task not running"}, status_code=404)
-    n = task_registry.add_note(task_id, text)
-    task_logs.log(task_id, "steer", f"飞行中指令（注入 {n} 个 agent）: {text[:160]}")
+    modules = (body or {}).get("modules")
+    if isinstance(modules, str):
+        modules = [modules]
+    if modules is not None and not isinstance(modules, list):
+        modules = None
+    if modules is not None:
+        modules = [str(m).strip() for m in modules if str(m).strip()] or None
+    n = task_registry.add_note(task_id, text, modules)
+    scope_tag = f"（作用域: {', '.join(modules)}）" if modules else ""
+    task_logs.log(task_id, "steer", f"飞行中指令（注入 {n} 个 agent）{scope_tag}: {text[:160]}")
     meta = sessions.get_task_metadata(task_id) or {}
     sid = meta.get("session_id", "")
     if sid:
         sessions.add_message(sid, "user", text)
         sessions.add_message(
             sid, "assistant",
-            f"[指令] 已注入 {n} 个运行中 agent（下一轮生效）" if n
-            else "[指令] 已收到（当前相位间隙无运行中 agent，将在下一批子 agent 自动注入）")
+            f"[指令] 已注入 {n} 个运行中 agent{scope_tag}（下一轮生效）" if n
+            else f"[指令] 已收到{scope_tag}（当前相位间隙无运行中 agent，将在下一批子 agent 自动注入）")
     return {"ok": True, "injected": n}
 
 

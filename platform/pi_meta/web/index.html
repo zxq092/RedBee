@@ -201,6 +201,39 @@
   .lb-sevbar .bar i.s-critical{background:#ff5c5c;} .lb-sevbar .bar i.s-high{background:#f0883e;}
   .lb-sevbar .bar i.s-medium{background:var(--yellow);} .lb-sevbar .bar i.s-low{background:#79c0ff;}
   .lb-sevbar .bar i.s-info{background:var(--map-dot);}
+  /* 板行手动状态按钮（误报/确认/恢复/撤销） */
+  .f-acts { display:flex; gap:4px; flex-shrink:0; }
+  .f-act { border:1px solid var(--border); background:transparent; color:var(--muted); border-radius:5px;
+           font-size:10.5px; padding:1px 6px; cursor:pointer; line-height:1.5; }
+  .f-act:hover { color:var(--text); border-color:var(--accent); }
+  .f-act:disabled { opacity:.5; cursor:default; }
+  /* 任务记录行的 findings 展开板 */
+  .record-detail { padding:6px 10px 10px; border-top:1px dashed var(--border); margin-top:4px; }
+  .record-detail .lb-list { max-height:280px; }
+  /* 报告预览 modal */
+  .md-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:90;
+                display:flex; align-items:center; justify-content:center; }
+  .md-modal { width:min(980px,92vw); max-height:88vh; display:flex; flex-direction:column;
+              background:var(--panel); border:1px solid var(--border); border-radius:12px;
+              box-shadow:0 10px 44px rgba(0,0,0,.5); }
+  .md-head { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .md-title { font-weight:700; font-size:14px; }
+  .md-body { overflow:auto; padding:16px 24px; font-size:13.5px; line-height:1.7; }
+  .md-body pre { background:var(--code-bg); border:1px solid var(--code-border); padding:10px 12px;
+                 border-radius:8px; overflow-x:auto; font-size:12px; line-height:1.55; margin:8px 0; }
+  .md-body code { font-family:ui-monospace,monospace; background:var(--chip-bg); padding:1px 4px;
+                  border-radius:4px; font-size:12px; }
+  .md-body pre code { background:none; padding:0; }
+  .md-body h1,.md-body h2,.md-body h3 { margin:16px 0 8px; line-height:1.35; }
+  .md-body h1 { font-size:19px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  .md-body h2 { font-size:16px; } .md-body h3 { font-size:14px; }
+  .md-body p { margin:7px 0; }
+  .md-body table { border-collapse:collapse; margin:10px 0; width:100%; font-size:12.5px; }
+  .md-body th,.md-body td { border:1px solid var(--border); padding:5px 9px; text-align:left; }
+  .md-body th { background:var(--panel2); }
+  .md-body ul,.md-body ol { padding-left:22px; margin:7px 0; }
+  .md-body blockquote { border-left:3px solid var(--border); padding-left:10px; color:var(--muted); margin:8px 0; }
+  .md-body a { color:var(--accent); }
   .lb-sevbar .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:10.5px; color:var(--muted); }
   .lb-sevbar .legend span { display:inline-flex; align-items:center; gap:3px; }
   .lb-sevbar .legend i { width:8px; height:8px; border-radius:2px; }
@@ -713,6 +746,8 @@ function renderMsg(role, content, extra){
     return el('div','boardline', content);
   }
   const wrap = el('div', 'msg ' + role);
+  if (extra && extra.cls) wrap.classList.add(extra.cls);
+  if (extra && extra.data) for (const k in extra.data) wrap.dataset[k] = extra.data[k];
   if (extra && extra.meta) wrap.appendChild(el('div', 'meta-line', extra.meta));
   if (role==='assistant' && extra && extra.status){
     const sp = el('span','status-pill st-'+extra.status, extra.status.toUpperCase());
@@ -960,6 +995,8 @@ $('#sessSearch').oninput = ()=> refreshSessions();
 /* 任务记录行：内联挂每条任务消息下（openSession）/ 末尾兜底块复用。
    报告/日志从会话内随时可取（刷新/重开不丢） */
 const TASK_SMAP = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
+/* 任务记录行（+ 可展开的 findings 板 + 报告预览/下载/日志）
+   返回 wrapper div：行 + 隐藏展开板，调用方直接 append 即可 */
 function recordRow(t, findings){
   const row = el('div','artifact-row');
   row.appendChild(el('span','artifact-id', t.task_id));
@@ -970,18 +1007,45 @@ function recordRow(t, findings){
   if ((t.status === 'runtime_error' || t.status === 'interrupted') && t.runtime_error_summary)
     sumParts.push(t.runtime_error_summary.length > 90 ? t.runtime_error_summary.slice(0,90)+'…' : t.runtime_error_summary);
   if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
-  const rb = el('button','tbtn','⬇ 报告');
-  rb.onclick = async ()=>{
-    try {
-      const rep = await api(`/api/task/${t.task_id}/report`);
-      if (rep && rep.report_md) downloadReport(t.task_id, rep.report_md);
-      else toast('该任务无报告（无 findings）');
-    } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
-  };
+  const rb = reportBtn(t);
   const lb = el('button','tbtn','⬇ 日志');
   lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
+  // 📋 查看发现：懒建展开板（复用 buildBoardList，行内可手动 误报/确认/恢复）
+  if (findings && findings.length){
+    const detail = el('div','record-detail');
+    detail.style.display='none';
+    const vb = el('button','tbtn','📋 发现');
+    vb.onclick = ()=>{
+      if (!detail.dataset.built){
+        detail.appendChild(buildBoardList(findings, {onStatus:(f,s)=>markFinding(t.task_id, f.id, s, detail)}));
+        detail.dataset.built='1';
+      }
+      const show = detail.style.display==='none';
+      detail.style.display = show?'block':'none';
+      vb.classList.toggle('on', show);
+    };
+    row.append(vb, rb, lb);
+    const wrap = el('div','artifact-wrap');
+    wrap.append(row, detail);
+    return wrap;
+  }
   row.append(rb, lb);
   return row;
+}
+/* 报告按钮：页内预览（modal 内可下载）；无报告时提示 */
+function reportBtn(t){
+  const rb = el('button','tbtn','📖 报告');
+  rb.title = '页内预览报告（modal 内可下载 .md）';
+  rb.onclick = async ()=>{
+    rb.disabled = true;
+    try {
+      const rep = await api(`/api/task/${t.task_id}/report`);
+      if (rep && rep.report_md) openReportModal(t.task_id, '渗透报告 · '+t.task_id, rep.report_md);
+      else toast('该任务无报告（无 findings），日志仍可下载');
+    } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
+    finally { rb.disabled = false; }
+  };
+  return rb;
 }
 
  async function newSession(){
@@ -1122,13 +1186,14 @@ function createLiveCard(taskId, afterEl){
   boardHead.appendChild(el('span','lb-title','🛡 漏洞板'));
   const boardCount = el('span','lb-count','');
   boardHead.appendChild(boardCount);
-  const boardRepBtn = el('button','tbtn lb-rep','当前报告 ⬇');
+  const boardRepBtn = el('button','tbtn lb-rep','当前报告');
+  boardRepBtn.title = '页内预览当前报告（modal 内可下载 .md）';
   boardRepBtn.style.display='none';
   boardRepBtn.onclick = async ()=>{
     boardRepBtn.disabled = true;
     try {
       const rep = await api(`/api/task/${taskId}/report`);
-      if (rep && rep.report_md) downloadReport(taskId, rep.report_md);
+      if (rep && rep.report_md) openReportModal(taskId, '渗透报告 · '+taskId, rep.report_md);
       else toast('暂无报告数据');
     } catch(e){ toast('获取报告失败: '+e.message); }
     finally { boardRepBtn.disabled = false; }
@@ -1179,11 +1244,27 @@ function startBoardPoll(){
 function stopBoardPoll(){
   if (boardTimer){ clearInterval(boardTimer); boardTimer = null; }
 }
-function renderBoard(ls, findings){
+/* 手动改 finding 状态（后端 board.mark）。intoEl=记录展开板容器（改完原地重画）；
+   缺省且命中当前 live 卡 → 重画 live 板（轮询也会兜底刷新） */
+async function markFinding(taskId, fid, status, intoEl){
+  try {
+    const r = await api(`/api/task/${taskId}/findings/${fid}`, {method:'PATCH', json:{status}});
+    if (!r || !r.ok) return false;
+    const b = await api(`/api/task/${taskId}/board`);
+    const nf = (b && b.findings) || [];
+    if (intoEl){
+      intoEl.replaceChildren(buildBoardList(nf, {onStatus:(f,s)=>markFinding(taskId, f.id, s, intoEl)}));
+    } else if (liveState && liveState.taskId === taskId && liveState.boardEl){
+      renderBoard(liveState, nf);
+    }
+    return true;
+  } catch(e){ toast('状态修改失败: '+e.message); return false; }
+}
+/* 板内容（摘要+分布条+行列表）：纯函数，live 执行卡与历史任务记录展开共用。
+   opts.onStatus(finding, newStatus) → 行内手动状态按钮回调 */
+function buildBoardList(findings, opts){
+  opts = opts || {};
   const list = el('div','lb-list');
-  const valid = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
-  ls.boardCount.textContent = valid.length ? valid.length+' 条' : '';
-  ls.boardRepBtn.style.display = findings.length ? '' : 'none';
   const sorted = [...findings].sort((a,b)=>
     ((SEV_RANK[a.severity]??9)-(SEV_RANK[b.severity]??9)) || (a.id-b.id));
   // 严重度分布条（纯 CSS）：有效发现按 severity 计数 + 堆叠条 + 图例
@@ -1241,12 +1322,28 @@ function renderBoard(ls, findings){
   }
   if (!sorted.length){ list.appendChild(el('div','lb-empty','暂无发现')); }
   sorted.forEach(f=>{
-    const fp = String(f.status||'found').toLowerCase()==='false_positive';
-    const row = el('div','lb-row'+(fp?' lb-fp':''));
+    const st0 = String(f.status||'found').toLowerCase();
+    const row = el('div','lb-row'+(st0==='false_positive'?' lb-fp':''));
     row.append(el('span','sev sev-'+(f.severity||'info'), f.severity||'info'));
     row.appendChild(el('span','f-title', f.title||'(无标题)'));
     if (f.location) row.appendChild(el('span','lb-loc', f.location));
-    row.appendChild(el('span','f-status st-'+(f.status||'found'), f.status||'found'));
+    row.appendChild(el('span','f-status st-'+st0, st0));
+    // 手动状态流转（误报不再计入摘要；确认/恢复可回退）
+    if (opts.onStatus && f.id!=null){
+      const act = el('span','f-acts');
+      const mk = (label, status)=>{
+        const b2 = el('button','f-act', label);
+        b2.title = '手动流转状态（立即计入摘要统计）';
+        b2.onclick = ev=>{ ev.stopPropagation(); b2.disabled = true;
+          opts.onStatus(f, status).then(ok=>{ if(!ok) b2.disabled = false; }); };
+        return b2;
+      };
+      if (st0==='false_positive') act.appendChild(mk('恢复','found'));
+      else act.appendChild(mk('误报','false_positive'));
+      if (st0==='found') act.appendChild(mk('确认','confirmed'));
+      else if (st0==='confirmed') act.appendChild(mk('撤销','found'));
+      row.appendChild(act);
+    }
     const det = el('div','lb-detail');
     det.style.display='none';
     if (f.poc){ det.appendChild(el('h5','PoC')); det.appendChild(Object.assign(el('pre'),{textContent:f.poc})); }
@@ -1255,6 +1352,13 @@ function renderBoard(ls, findings){
     row.onclick = ()=>{ det.style.display = det.style.display==='none'?'block':'none'; };
     list.appendChild(row); list.appendChild(det);
   });
+  return list;
+}
+function renderBoard(ls, findings){
+  const valid = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
+  ls.boardCount.textContent = valid.length ? valid.length+' 条' : '';
+  ls.boardRepBtn.style.display = findings.length ? '' : 'none';
+  const list = buildBoardList(findings, {onStatus:(f,s)=>markFinding(ls.taskId, f.id, s)});
   ls.boardEl.replaceWith(list);
   ls.boardEl = list;
 }
@@ -1545,6 +1649,68 @@ function downloadReport(taskId, md){
   toast('报告已开始下载');
 }
 
+/* 迷你 Markdown 渲染（无外部依赖，离线可用）。
+   顺序：先整体 HTML 转义（报告来自 agent/LLM，防注入）→ 块级 → 行内 → 段落 */
+function mdToHtml(md){
+  let s = String(md||'').replace(/\r\n/g,'\n');
+  s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (m,lang,code)=>'\n<pre><code>'+code+'\n</code></pre>\n');
+  s = s.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  s = s.replace(/^### (.*)$/gm,'<h3>$1</h3>')
+       .replace(/^## (.*)$/gm,'<h2>$1</h2>')
+       .replace(/^# (.*)$/gm,'<h1>$1</h1>');
+  s = s.replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // GFM 表格：| h | h |\n|---|---|\n| c | c |
+  s = s.replace(/(^|\n)(\|(?:[^|\n]*\|)+\n\|(?:\s*:?-+:?\s*\|)+\n(?:\|[^|\n]*\|\n?)+)/g, (m,pre,block)=>{
+    const lines = block.trim().split('\n');
+    const cells = l => l.replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+    let h = pre+'<table><tr>'+cells(lines[0]).map(c=>'<th>'+c+'</th>').join('')+'</tr>';
+    for (let i=2;i<lines.length;i++) h += '<tr>'+cells(lines[i]).map(c=>'<td>'+c+'</td>').join('')+'</tr>';
+    return h+'</table>';
+  });
+  s = s.replace(/^&gt; ?(.*)$/gm,'<blockquote>$1</blockquote>');
+  s = s.replace(/(^|\n)((?:- .*(?:\n|$))+)/g,(m,pre,block)=>
+    pre+'<ul>'+block.trim().split('\n').map(l=>'<li>'+l.replace(/^- /,'')+'</li>').join('')+'</ul>');
+  s = s.replace(/(^|\n)((?:\d+\. .*(?:\n|$))+)/g,(m,pre,block)=>
+    pre+'<ol>'+block.trim().split('\n').map(l=>'<li>'+l.replace(/^\d+\. /,'')+'</li>').join('')+'</ol>');
+  // 段落：连续非空、非块级标签的行合并成 <p>（行间 <br>）
+  let out = '', para = [];
+  const flush = ()=>{ if (para.length){ out += '<p>'+para.join('<br>')+'</p>'; para = []; } };
+  for (const ln of s.split('\n')){
+    if (/^\s*<\/?(h\d|pre|ul|ol|table|blockquote|\/tr|tr|\/th|th|\/td|td)/.test(ln)){ flush(); out += ln; }
+    else if (!ln.trim()){ flush(); }
+    else para.push(ln);
+  }
+  flush();
+  return out;
+}
+/* 报告页内预览（modal）：下载按钮保留在 modal 头部 */
+function openReportModal(taskId, title, md){
+  let ov = document.getElementById('mdOverlay');
+  if (!ov){
+    ov = document.createElement('div');
+    ov.id = 'mdOverlay'; ov.className = 'md-overlay';
+    ov.innerHTML = `<div class="md-modal">
+      <div class="md-head"><span class="md-title"></span><span style="flex:1"></span>
+        <button class="tbtn md-dl">⬇ 下载 .md</button>
+        <button class="tbtn md-close" title="关闭（Esc）">✕</button></div>
+      <div class="md-body"></div></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e=>{ if (e.target===ov) closeReportModal(); });
+    ov.querySelector('.md-close').onclick = closeReportModal;
+    document.addEventListener('keydown', e=>{ if (e.key==='Escape') closeReportModal(); });
+  }
+  ov.querySelector('.md-title').textContent = title;
+  ov.querySelector('.md-dl').onclick = ()=> downloadReport(taskId, md);
+  ov.querySelector('.md-body').innerHTML = mdToHtml(md);
+  ov.style.display = 'flex';
+}
+function closeReportModal(){
+  const ov = document.getElementById('mdOverlay');
+  if (ov) ov.style.display = 'none';
+}
+
 function notify(title, body){
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   try { new Notification(title, {body}); } catch(e){}
@@ -1609,6 +1775,14 @@ function statusTail(status, meta){
   return s;
 }
 
+/* "已分发"消息是前端临时消息（不落库，刷新后不存在）：任务结束时把它的
+   RUNNING 徽章更新成终态，免得会话里永远挂个蓝色 RUNNING */
+function updateDispatchPill(taskId, status){
+  const st = status==='done' ? 'done' : (status==='cancelled' ? 'cancel' : 'error');
+  const txt = status==='done' ? 'DONE' : (status==='cancelled' ? 'STOPPED' : 'FAILED');
+  document.querySelectorAll('.dispatch-msg[data-task="'+taskId+'"] .status-pill')
+    .forEach(p=>{ p.className = 'status-pill st-'+st; p.textContent = txt; });
+}
 async function onTaskDone(status){
   const taskId = curTaskId;
   const sid = taskSid;
@@ -1616,6 +1790,7 @@ async function onTaskDone(status){
   if (eventSource){ eventSource.close(); eventSource=null; }
   curTaskId=null; taskSid=null;
   updateSendBtn();
+  updateDispatchPill(taskId, status);
   finalizeCard(status);
   // 漏洞板定格（卡片结束后保留 = 最终成果板）
   let boardFindings = [];
@@ -1704,7 +1879,7 @@ async function sendTask(){
   $('#sendBtn').disabled=true;
   try {
     const d = await api('/api/task',{method:'POST',json:body});
-    $('#msgs').appendChild(renderMsg('assistant','任务已分发后台执行…',{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(' 参数:'+JSON.stringify(d.params)):''), status:'running'}));
+    $('#msgs').appendChild(renderMsg('assistant','任务已分发后台执行…',{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(' 参数:'+JSON.stringify(d.params)):''), status:'running', cls:'dispatch-msg', data:{task:d.task_id}}));
     if (d.param_warnings && d.param_warnings.length) toast('参数剔除: '+d.param_warnings.join('; '));
     saveCurSessParams();               // 记住本会话的这套参数（后续任务沿用）
     if ($('#paramOverlay').style.display !== 'none') closeParamDrawer();

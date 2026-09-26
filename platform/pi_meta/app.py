@@ -521,6 +521,26 @@ async def task_board(task_id: str):
     return {"task_id": task_id, "findings": board_mod.all_findings(task_id), "status": status}
 
 
+@app.patch("/api/task/{task_id}/findings/{fid}")
+async def api_finding_status(task_id: str, fid: int, request: Request):
+    """前端手动流转 finding 状态：confirmed / false_positive / found（回退）。
+    board.mark() 早已支持，此处只是暴露 HTTP 入口（治"误报只能在库里改"）。"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    status = str(body.get("status", ""))
+    if status not in ("confirmed", "false_positive", "found"):
+        return JSONResponse(
+            {"error": "status must be one of confirmed/false_positive/found"},
+            status_code=400)
+    board_mod.mark(task_id, fid, status, confirmed_by=str(body.get("confirmed_by") or "ui"))
+    return {"ok": True, "task_id": task_id, "id": fid, "status": status}
+
+
 def _report_payload(task_id: str):
     """从 pimeta.db 读 findings+coverage → 生成 Markdown 报告。无数据返回 None。"""
     from . import report_builder

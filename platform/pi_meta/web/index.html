@@ -760,7 +760,7 @@ function renderSessionList(list, taskBySess={}){
     const ck = document.createElement('input');
     ck.type='checkbox'; ck.className='ck'; ck.checked=sel;
     if (runningTasks[s.id]){ ck.disabled=true; ck.title='任务运行中，不可删除'; } else { ck.title='勾选批量删除'; }
-    ck.onclick = e=>{ e.stopPropagation(); if(ck.checked) selectedSids.add(sid); else selectedSids.delete(sid);
+    ck.onclick = e=>{ e.stopPropagation(); if(ck.checked) selectedSids.add(s.id); else selectedSids.delete(s.id);
       d.classList.toggle('selected', ck.checked); updateBulkBtn(); syncSelectAll(); };
     d.appendChild(ck);
     const info = el('div','si');

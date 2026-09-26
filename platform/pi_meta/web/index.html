@@ -1077,6 +1077,7 @@ function extractTaskText(messages, taskCreatedAt){
 }
 
   async function openSession(sid){
+    showChatView();               // 从任务总览等视图切回聊天视图
     saveCurSessParams();          // 切走前，保存当前会话的参数
     curSid = sid;
     loadParamsToInputs(sid);      // 加载目标会话的参数
@@ -1219,9 +1220,10 @@ function reportBtn(t){
   return rb;
 }
 
- async function newSession(){
-   const hadRunning = !!curTaskId;
-   clearStream();   // 隐藏状态栏；后端任务继续跑，回原会话自动重连
+  async function newSession(){
+    showChatView();               // 从任务总览切回聊天视图
+    const hadRunning = !!curTaskId;
+    clearStream();   // 隐藏状态栏；后端任务继续跑，回原会话自动重连
    if (hadRunning){
      toast('有任务在后台执行，回到该会话可看实时进度');
    }

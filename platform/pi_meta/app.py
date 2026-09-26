@@ -457,24 +457,10 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
                           "target_id": metadata.get("target_id", ""),
                           "assigned_modules": agg["assigned_modules"],
                           "status": final_status})
-    # 会话内可见的结果摘要（刷新后重载会话也能看到 findings 列表）
-    if total > 0:
-        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        valid = [f for f in findings if str(f.get("status", "found")).lower() not in {"false_positive", "suspect"}]
-        valid.sort(key=lambda f: sev_rank.get(str(f.get("severity", "")).lower(), 9))
-        lines = [f"• [{f.get('severity','?')}] {f.get('vuln_class','?')} — {f.get('title','?')}"
-                 + (f" ({f.get('status')})" if str(f.get('status', 'found')) != 'found' else "")
-                 for f in valid]
-        head = (f"任务 {task_id} 已停止: 共 {total} 条有效发现" if cancelled
-                else (f"任务 {task_id} 执行失败: 已有 {total} 条有效发现 — {run_error[:200]}" if run_error
-                      else f"任务 {task_id} 编排完成: 共 {total} 条有效发现"))
-        sessions.add_message(sid, "assistant", head + "\n" + "\n".join(lines))
-    else:
-        sessions.add_message(
-            sid, "assistant",
-            (f"任务 {task_id} 已停止（无有效发现）" if cancelled
-             else (f"任务 {task_id} 执行失败: {run_error[:300]}" if run_error
-                   else f"任务 {task_id} 编排完成: 0 条有效发现")))
+    # 任务结果不再往会话存"纯文本结论"消息：结果展示的唯一入口是前端的
+    # 任务记录块（renderTaskArtifacts，从 /api/tasks + /board + 报告渲染，
+    # 带 ⬇报告/⬇日志 下载）+ 实时执行卡定格。旧数据里的纯文本结论由前端
+    # openSession 按前缀过滤不再显示（见 index.html）。
     # 回流闭环：有 finding 时 fire-and-forget 触发 KB distill+promote+sync（不阻塞任务返回）。
     # 治理门禁保证只有 verified 条目才 authoritative。
     if total > 0 and not cancelled:

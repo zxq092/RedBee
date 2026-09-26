@@ -879,8 +879,12 @@ $('#sessSearch').oninput = ()=> refreshSessions();
     const msgs=$('#msgs'); msgs.innerHTML='';
     try {
       const ms = await api(`/api/sessions/${sid}/messages`);
-      if (!ms.length) msgs.appendChild(emptyState());
-      ms.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
+      // 兼容旧数据：老版本完成时落库的"纯文本结论"（任务 tXXX 编排完成/已停止/执行失败:
+      // …• [sev] class — title）已被任务记录块覆盖（带 ⬇报告/⬇日志），不再重复显示
+      const visible = ms.filter(m => !(m.role === 'assistant'
+        && /^任务 t[0-9a-f]+ (编排完成|已停止|执行失败)/.test(String(m.content || ''))));
+      if (!visible.length) msgs.appendChild(emptyState());
+      visible.forEach(m=>msgs.appendChild(renderMsg(m.role, m.content)));
       await renderTaskArtifacts(msgs, sid);
       scrollBottom(true);
     } catch(e){ msgs.appendChild(renderMsg('sys', '加载会话失败: '+e.message)); }

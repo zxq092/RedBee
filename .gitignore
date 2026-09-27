@@ -45,6 +45,7 @@ todolist.md
 platform/juiceshop_progress.py
 platform/ingest_juiceshop_solutions.py
 platform/generify_juiceshop_docs.py
+platform/tools/webgoat_progress.py
 
 # 内部 pi 引擎实验 UI（依赖本机 runtime/ 与内部 LLM 网关，不随仓库发布）
 platform/pi_web/

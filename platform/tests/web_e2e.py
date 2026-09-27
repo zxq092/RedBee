@@ -116,8 +116,10 @@ async def run():
 
         # 4. 状态栏（需要 running 任务才有意义）
         print("[4] 状态栏")
-        if d["running"]:
-            rt = d["running"][0]
+        rt = await pg.evaluate(
+            "async()=>{const t=(await (await fetch('/api/tasks?status=running')).json())[0];"
+            "return t?{sid:t.session_id}:null}")
+        if rt:
             await pg.evaluate(f"openSession('{rt['sid']}')")
             await pg.wait_for_timeout(4000)
             on1 = await pg.evaluate("document.getElementById('runStatus').classList.contains('on')")
@@ -263,9 +265,11 @@ async def run():
         }""")
         check("总览→新建会话切回聊天", r8e["tv"] == "none" and r8e["chat"] == "" and r8e["empty"], json.dumps(r8e))
 
-        # 9. 重跑
+        # 9. 重跑（动态查运行态：用户可能恰好有任务在跑，守卫/文本还原都要自适应）
         print("[9] 重跑")
-        if d["running"]:
+        run9 = await pg.evaluate(
+            "async()=>(await (await fetch('/api/tasks?status=running')).json()).length>0")
+        if run9:
             r9 = await pg.evaluate("""async ()=>{
               const t=(await (await fetch('/api/tasks')).json()).find(x=>x.status==='running');
               let called=0; const orig=window.sendTask;
@@ -277,20 +281,34 @@ async def run():
             check("运行中任务重跑被拒", r9.get("called") == 0, json.dumps(r9))
         else:
             print("  SKIP  （无运行中任务，守卫分支未覆盖）")
-        await pg.evaluate(f"openSession('{hist['sid']}')")
-        await pg.wait_for_timeout(4000)
         r9b = await pg.evaluate("""async ()=>{
-          const row=document.querySelector('.artifact-row[data-task]');
-          if (!row) return {ok:false};
-          const t=(await (await fetch('/api/tasks')).json()).find(x=>x.task_id===row.dataset.task);
-          let cap=null; const orig=window.sendTask;
+          const runningSess=new Set((await (await fetch('/api/tasks')).json())
+            .filter(x=>x.status==='running').map(x=>x.session_id));
+          const sess=await (await fetch('/api/sessions')).json();
+          const order=[__HIST_SID__, curSid, ...sess.map(s=>s.id)];   // 优先历史会话
+          let cap=null, tried=[];
+          const orig=window.sendTask;
           window.sendTask=async()=>{cap={len:document.getElementById('taskInput').value.length,
-                                          target:document.getElementById('targetInput').value};};
-          await window.rerunTask(t);
+                                         target:document.getElementById('targetInput').value};};
+          for (const sid of order) {
+            if (runningSess.has(sid)) continue;          // 避开有 running 任务的会话（守卫会拒）
+            try { openSession(sid); } catch(e){ continue; }
+            await new Promise(r=>setTimeout(r,2500));
+            const row=document.querySelector('.artifact-row[data-task]');
+            if (!row) continue;
+            const t=(await (await fetch('/api/tasks')).json()).find(x=>x.task_id===row.dataset.task);
+            if (!t) continue;
+            tried.push(sid);
+            await window.rerunTask(t);
+            if (cap) break;
+          }
           window.sendTask=orig;
-          return {ok:true, cap};
-        }""")
-        check("重跑还原任务文本+目标", r9b.get("cap") and r9b["cap"]["len"] > 20 and r9b["cap"]["target"], json.dumps(r9b))
+          return {cap, tried};
+        }""".replace("__HIST_SID__", repr(hist["sid"])))
+        if not r9b.get("tried"):
+            print("  SKIP  （没有无 running 任务且含任务记录的会话）")
+        else:
+            check("重跑还原任务文本+目标", r9b.get("cap") and r9b["cap"]["len"] > 20 and r9b["cap"]["target"], json.dumps(r9b))
 
         # 10. 语言切换
         print("[10] 语言切换")

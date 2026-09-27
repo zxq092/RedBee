@@ -1,0 +1,34 @@
+# RedBee Kali 沙箱镜像（agent 攻击命令执行环境）
+#
+# 构建：docker build -f Dockerfile.kali -t redbee-kali:local .
+# 说明：
+# - 基座 kalilinux/kali-rolling 自带完整工具集（~500 包），下面显式安装的是
+#   平台 TOOL_REGISTRY 保证依赖的核心工具，防止基座默认集变化导致缺件。
+# - 网关通过宿主 Docker daemon 以兄弟容器方式拉起本镜像（--network bridge）。
+# - 打 v* tag 时 CI 会同时发布本镜像到 GHCR（见 .github/workflows/ci.yml）。
+
+FROM kalilinux/kali-rolling:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        nmap \
+        sqlmap \
+        nikto \
+        curl \
+        wget \
+        git \
+        ca-certificates \
+        python3 \
+        python3-pip \
+        dnsutils \
+        netcat-openbsd \
+        whois \
+        hydra \
+        ffuf \
+        dirb \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root
+
+CMD ["sleep", "infinity"]

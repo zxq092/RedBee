@@ -90,3 +90,26 @@ jobs:
           # 内层缓存：加速重复构建
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ---------- Kali 沙箱镜像（自包含，随 tag 一起发） ----------
+      - name: Extract kali metadata
+        id: meta-kali
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/redbee-kali
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push kali
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.kali
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-kali.outputs.tags }}
+          labels: ${{ steps.meta-kali.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

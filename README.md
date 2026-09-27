@@ -253,6 +253,10 @@ curl http://127.0.0.1:8000/api/task/{task_id}/board
 ```bash
 cp platform/config.example.env platform/.env   # 填入真实 LLM key
 
+# 指向 CI 发布的镜像（平台 + Kali 沙箱，打 v* tag 自动构建多架构）
+export REDBEE_IMAGE=ghcr.io/<你的组织>/<repo>:latest
+export REDBEE_KALI_IMAGE=ghcr.io/<你的组织>/<repo>/redbee-kali:latest
+
 # 预拉 Kali 沙箱镜像（网关用它跑攻击命令）
 docker compose --profile sandbox pull
 
@@ -265,12 +269,15 @@ docker compose up -d
 
 ```bash
 cp platform/config.example.env platform/.env
-docker compose --profile sandbox pull
+# 构建 Kali 沙箱镜像（自包含：Dockerfile.kali，基于公开 kalilinux/kali-rolling）
+docker compose --profile sandbox build
 docker compose up -d --build
 ```
 
-> **镜像发布路径**：默认 `REDBEE_IMAGE=redbee:local`（本机构建）；发布后设
-> `REDBEE_IMAGE=ghcr.io/<你的组织>/<repo>` 走 GHCR 拉取。多架构（amd64/arm64）由 CI 构建。
+> **镜像发布路径**：默认 `REDBEE_IMAGE=redbee:local`、`REDBEE_KALI_IMAGE=redbee-kali:local`
+> （本机构建）；发布后设 `ghcr.io/<你的组织>/<repo>` 走 GHCR 拉取。
+> 多架构（amd64/arm64）由 CI 构建。Kali 沙箱镜像自包含可复现构建，
+> 也可通过 `HINSE_DOCKER_IMAGE` 换成任意可用 Kali 镜像。
 
 ### 网络要点（docker 后怎么打靶场）
 

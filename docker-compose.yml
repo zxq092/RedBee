@@ -2,7 +2,9 @@
 #
 # 用法：
 #   1. 准备配置（密钥不走镜像）：cp platform/config.example.env platform/.env 并填入真实 LLM key
-#   2. 拉取 Kali 沙箱镜像（网关用它跑攻击命令，需在宿主 daemon 上）：
+#   2. 准备 Kali 沙箱镜像（网关用它跑攻击命令，需在宿主 daemon 上）：
+#        docker compose --profile sandbox build     # 本地构建（Dockerfile.kali，自包含）
+#      或发布后设 REDBEE_KALI_IMAGE=ghcr.io/<org>/redbee-kali:latest 再：
 #        docker compose --profile sandbox pull
 #   3. 启动：
 #        docker compose up -d --build
@@ -47,8 +49,8 @@ services:
       REDKB_URL: http://redkb:8001
       REDKB_DATA_DIR: /data
       PIMETA_DB: /data/pimeta.db
-      # Kali 沙箱镜像（宿主 daemon 拉取/使用）
-      HINSE_DOCKER_IMAGE: vxcontrol/kali-linux:latest
+      # Kali 沙箱镜像（宿主 daemon 使用）；与 kali-image 服务保持一致
+      HINSE_DOCKER_IMAGE: ${REDBEE_KALI_IMAGE:-redbee-kali:local}
     volumes:
       - redbee-data:/data
       # 关键：挂宿主 Docker socket，网关才能调宿主 daemon 起 Kali 沙箱（兄弟容器）
@@ -59,12 +61,18 @@ services:
       redkb:
         condition: service_healthy
 
-  # ---------- Kali 沙箱镜像预拉取（辅助） ----------
+  # ---------- Kali 沙箱镜像（构建/预拉，辅助） ----------
   # 网关每次任务会 docker run 一个 inhouse-sess-* 的 Kali 容器（由宿主 daemon 起）。
-  # 需要先在宿主 daemon 有 vxcontrol/kali-linux。本服务用 profile 单独预拉：
-  #   docker compose --profile sandbox pull
+  # 需要先在宿主 daemon 有该镜像。本服务用 profile 单独构建或预拉：
+  #   本地自包含构建：docker compose --profile sandbox build
+  #   拉 CI 发布镜像：设 REDBEE_KALI_IMAGE=ghcr.io/<org>/redbee-kali:latest 后
+  #                   docker compose --profile sandbox pull
+  # 注意：未设 REDBEE_KALI_IMAGE 时 build 目标为 redbee-kali:local（与网关 env 一致）。
   kali-image:
-    image: vxcontrol/kali-linux:latest
+    image: ${REDBEE_KALI_IMAGE:-redbee-kali:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.kali
     profiles: ["sandbox"]
     command: ["true"]
 

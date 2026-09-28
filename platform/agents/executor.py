@@ -61,7 +61,7 @@ _load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 # ---------------------------------------------------------------------------
 MAX_TURNS = int(os.environ.get("HINSE_MAX_TURNS", "60"))
 DB_PATH = PIMETA_DB_PATH
-KALI_IMAGE = os.environ.get("HINSE_DOCKER_IMAGE", "vxcontrol/kali-linux:latest")
+KALI_IMAGE = os.environ.get("HINSE_DOCKER_IMAGE", "redbee-kali:local")
 
 
 def _max_turns(agent) -> int:
@@ -71,7 +71,7 @@ def _max_turns(agent) -> int:
 
 
 def _kali_image() -> str:
-    return cfg_env("HINSE_DOCKER_IMAGE", "vxcontrol/kali-linux:latest")
+    return cfg_env("HINSE_DOCKER_IMAGE", "redbee-kali:local")
 
 # ---------------------------------------------------------------------------
 # 渗透核心工具使用手册（注入 system prompt，让模型真正"会用"工具而不是靠猜）

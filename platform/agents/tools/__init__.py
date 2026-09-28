@@ -45,7 +45,7 @@ _load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 # 配置
 # ---------------------------------------------------------------------------
 DB_PATH = PIMETA_DB_PATH
-KALI_IMAGE = os.environ.get("HINSE_DOCKER_IMAGE", "vxcontrol/kali-linux:latest")
+KALI_IMAGE = os.environ.get("HINSE_DOCKER_IMAGE", "redbee-kali:local")
 REDKB_URL = os.environ.get("REDKB_URL", "http://127.0.0.1:8001")
 
 # ---------------------------------------------------------------------------
@@ -797,7 +797,7 @@ async def tool_browser(url: str = "", action: str = "navigate",
       {"type": "object", "properties": {"target": {"type": "string"}, "ports": {"type": "string"}}},
       "inhouse")
 async def tool_nmap(target: str, ports: str = "") -> Dict[str, Any]:
-    # 容器内 nmap 在 vxcontrol/kali-linux 镜像里 EPERM 损坏 → 强制宿主机
+    # nmap 强制宿主机执行（部分 Kali 镜像容器内 EPERM 损坏；宿主执行行为一致更稳）
     # 默认快速（top 100 端口 + 版本），避免 -p 1-1000 全扫超时返回空
     cmd = f"nmap -sV -p {ports} {target}" if ports else f"nmap -F -sV {target}"
     result = await tool_bash(cmd, timeout=90)

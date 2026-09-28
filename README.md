@@ -169,25 +169,35 @@ MODEL_PRIORITY=DeepSeek-V4-Flash,qwen3.8-27b
 
 - Python 3.11+
 - pip
-- LLM API 密钥（DeepSeek / qwen3.8-27b）
-- Docker + Docker Compose（**可选**，仅用于靶场环境 DVWA/Juice Shop/llmvault）
+- **OpenAI 兼容 LLM 端点 + API Key**（必填；如 vLLM / DeepSeek / OpenAI 等）
+- embedding 端点（可选；不填 RED-KB 语义检索退化为关键词检索）
+- Docker（**推荐必装**：Kali 攻击沙箱跑在 Docker 容器里，sqlmap 利用/terminal 等渗透工具依赖它；
+  无 Docker 时仅 HTTP/浏览器/宿主 nmap 类侦察可用）
+- nmap（宿主侧，`apt install nmap`）
 
 ### 1. 克隆并安装依赖
 
 ```bash
 git clone <repo-url>
-cd redbee
+cd <repo>
 pip install -r platform/requirements.txt
+python -m playwright install chromium --with-deps   # browser 工具用（不用浏览器可跳过）
 ```
 
 ### 2. 配置
 
 ```bash
 cp platform/config.example.env platform/.env
-# 填入你的 LLM API Key、模型端点、embedding 端点
+# 填入 LLM 端点/Key（第 1 节，必填）；embedding 端点（第 2 节，可选）
 ```
 
-### 3. 初始化知识库 + 启动服务
+### 3. 构建 Kali 攻击沙箱镜像（Docker 部署跳过本步，compose 会自动构建）
+
+```bash
+docker build -f Dockerfile.kali -t redbee-kali:local .
+```
+
+### 4. 初始化知识库 + 启动服务
 
 ```bash
 cd platform
@@ -202,7 +212,7 @@ bash start_pimeta.sh  # PI 网关 :8000（后台，绑定 0.0.0.0）
 ```
 `start_*.sh` 绑定 `0.0.0.0`，局域网/容器内可直接访问。
 
-### 4. 准备一个目标（可选）
+### 5. 准备一个目标（可选）
 
 引擎打**任意授权目标**（URL / IP）。想先拿公开靶场练手，用官方仓库即可（本仓库不捆绑靶场源码）：
 
@@ -216,7 +226,7 @@ docker run -d -p 3000:3000 bkimminich/juice-shop
 
 或直接指向你自己部署的目标。
 
-### 5. 派发任务
+### 6. 派发任务
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/task \
@@ -229,7 +239,7 @@ curl -X POST http://127.0.0.1:8000/api/task \
   }'
 ```
 
-### 6. 查看进度
+### 7. 查看进度
 
 ```bash
 # 实时快照

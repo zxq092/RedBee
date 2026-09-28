@@ -6,7 +6,7 @@
   2. process_task 读 RED-KB 里该 task 的 RedBee case snapshot
   3. distill_inhouse_case 从轨迹蒸馏技战术(candidate)
   4. promote_inhouse_candidate 提升成 authoritative(经验有效)
-  5. run_sync 把 authoritative 回流(PENTAGI_KB_URL 未配置时 skip)
+  5. _scan_and_promote_candidates 扫描: 关联任务 findings 已确认 → 自动升 verified/authoritative
 
 用法:
   python3 auto_ingest.py once --task <task_id>   # 对单个已完成的 task 跑一遍闭环
@@ -22,7 +22,6 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import PIMETA_DB_PATH
-SYNC_PY = os.path.join(os.path.dirname(__file__), "adapters", "pentagi", "sync_kb.py")
 
 REDKB_URL = os.environ.get("REDKB_URL", "http://127.0.0.1:8001")
 
@@ -251,16 +250,6 @@ def promote_inhouse_candidate(candidate: "Candidate") -> "KnowledgeEntry":
     return store.get_knowledge(entry_id)
 
 
-async def run_sync() -> dict:
-    if not os.path.exists(SYNC_PY):
-        return {"exit": -1, "log": f"sync_kb not wired: {SYNC_PY} missing"}
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, SYNC_PY,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    out, _ = await proc.communicate()
-    return {"exit": proc.returncode, "log": out.decode(errors="ignore")[-400:]}
-
-
 def _load_findings(task_id: str) -> list:
     """从 pimeta.db(findings 真源, 含 vuln_class/poc/evidence)读该 task 的 findings。"""
     import sqlite3
@@ -485,7 +474,6 @@ async def process_task(task_id: str) -> dict:
         except Exception as exc:
             return {"ok": False, "task_id": task_id, "case_id": case_id, "error": str(exc)}
 
-    sync = await run_sync()
     # 扫描 candidate: 若关联任务的 findings 已确认 → 自动升 verified/authoritative
     _scan_and_promote_candidates()
     return {
@@ -494,7 +482,6 @@ async def process_task(task_id: str) -> dict:
         "case_id": case_id,
         "promoted": promoted,
         "techniques": distilled,
-        "sync": sync,
     }
 
 

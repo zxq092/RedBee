@@ -498,7 +498,7 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
 
 
 async def _trigger_kb_ingest(task_id: str):
-    """任务完成后自动回流：distill case → promote authoritative → sync_kb。失败不影响任务。"""
+    """任务完成后自动回流：distill case → promote authoritative。失败不影响任务。"""
     try:
         from auto_ingest import process_task
         res = await process_task(task_id)

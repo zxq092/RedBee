@@ -280,11 +280,6 @@ DATA_DIR = os.environ.get(
 )
 PIMETA_DB_PATH = os.environ.get("PIMETA_DB", os.path.join(DATA_DIR, "pimeta.db"))
 
-# ---- PentAGI（可选，未配置时相关回流自动跳过）----
-PENTAGI_URL = os.environ.get("PENTAGI_URL", "")
-PENTAGI_TOKEN = os.environ.get("PENTAGI_TOKEN", "")
-PENTAGI_PROVIDER = os.environ.get("PENTAGI_PROVIDER", "")
-
 # ---- normalized model runtime ----
 # Keep module aliases in sync with model_priority() for legacy callers.
 # Validation is intentionally deferred until runtime resolution so imports remain

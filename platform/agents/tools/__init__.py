@@ -20,7 +20,7 @@ import httpx
 from playwright.async_api import async_playwright
 
 from pi_meta.board import post as board_post
-from config import PIMETA_DB_PATH
+from config import PIMETA_DB_PATH, env
 
 
 # ---------------------------------------------------------------------------
@@ -1094,21 +1094,27 @@ def _evidence_plausible(f: Dict[str, Any]) -> Optional[str]:
 
 # ---- KB 回吐（经验回流闭环·回吐侧）----
 # target 归一化（权威定义在此，orchestrator_v2/executor 都从 tools import，避免循环依赖）
-TARGET_ID_MAP = {
-    "192.168.71.19": "dvwa",
-    "172.26.0.3": "dvwa",
-    "192.168.71.2": "juice",
-    "192.168.71.5": "webgoat",
-}
+# IP → 稳定 target_id 映射走 .env 的 PIMETA_TARGET_ID_MAP（"ip=id,ip=id"），
+# 不硬编码进仓库（靶场 IP 属本机环境，公开前已剥离）；任务显式 target_id 优先于此表。
+def _target_id_map() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in env("PIMETA_TARGET_ID_MAP").split(","):
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        k, v = k.strip(), v.strip()
+        if k and v:
+            out[k] = v
+    return out
 
 
 def resolve_target_id(target: str, explicit: str = "") -> str:
-    """稳定 target_id：显式 > IP映射表 > host。"""
+    """稳定 target_id：显式 > IP映射表(.env) > host。"""
     if explicit:
         return explicit.strip().lower()
     m = re.search(r"://([^/:]+)", target or "")
     host = m.group(1) if m else (target or "").strip()
-    return TARGET_ID_MAP.get(host, host)
+    return _target_id_map().get(host, host)
 
 
 def _ingest_finding_to_kb(title: str, poc: str, evidence: str, asset: str,

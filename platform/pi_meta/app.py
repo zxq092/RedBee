@@ -503,7 +503,7 @@ async def _trigger_kb_ingest(task_id: str):
         from auto_ingest import process_task
         res = await process_task(task_id)
         if res.get("ok"):
-            print(f"[kb-ingest] task={task_id} promoted={res.get('promoted')} sync={res.get('sync', {}).get('exit')}", flush=True)
+            print(f"[kb-ingest] task={task_id} promoted={res.get('promoted')} techniques={len(res.get('techniques') or [])}", flush=True)
         else:
             print(f"[kb-ingest] task={task_id} failed: {res.get('error')}", flush=True)
     except Exception as e:

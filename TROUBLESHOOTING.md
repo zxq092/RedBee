@@ -1,67 +1,68 @@
 # Troubleshooting
 
-自部署 RedBee 时常见问题排查。面向通用环境；不含内网专属细节。
+[English](TROUBLESHOOTING.md) | [简体中文](TROUBLESHOOTING.zh-CN.md)
 
-## 启动问题
+Common issues when self-deploying RedBee. Written for generic environments; no internal-network specifics.
 
-### 1. 网关起来了，但报 "All connection attempts failed"
-- 确认 RED-KB 是否在监听：`curl -s http://127.0.0.1:8001/health`
-- 确认网关 `REDKB_URL` 指向正确的 RED-KB 地址。
-  - 本机直跑：`http://127.0.0.1:8001`
-  - **Docker Compose 内**：必须是 `http://redkb:8001`（服务名），不能用 `127.0.0.1`
-    （容器内 `127.0.0.1` 是它自己的回环，指不到另一个容器）。
-- 网关是否绑定 `0.0.0.0`？若只绑回环，外部/容器访问不到。
+## Startup
 
-### 2. 任务派发后秒级返回失败 "目标不可达"
-- 引擎会先做可达性预检（3~5s），目标连不上会快速失败，不烧侦察预算。
-- 检查目标地址/端口/网络。若目标是容器/靶场，确认它在网关与沙箱都能访问的网络上。
-- 沙箱（`inhouse-sess-*`）由宿主 Docker daemon 以 `--network bridge` 创建：
-  - 目标必须在**宿主能访问**的网络（如宿主 docker bridge），沙箱才能打到。
-  - 如果目标只在某个自定义 compose 网络里，沙箱默认连不到——把目标放到宿主可见网络。
+### 1. Gateway is up but logs "All connection attempts failed"
+- Confirm RED-KB is listening: `curl -s http://127.0.0.1:8001/health`
+- Confirm the gateway's `REDKB_URL` points at the right RED-KB address:
+  - Running on the host directly: `http://127.0.0.1:8001`
+  - **Inside Docker Compose**: it must be `http://redkb:8001` (the service name). `127.0.0.1`
+    inside a container is the container's own loopback and cannot reach another service.
+- Is the gateway bound to `0.0.0.0`? If it only binds loopback, external/container clients can't reach it.
 
-### 3. 网关重启后 kill 不掉 / 停不下来
-- Web UI 用 SSE(`/stream`)长连接；优雅停机会被长连接卡住。
-- 启动网关务必带 `--timeout-graceful-shutdown 5`（`run.sh`/`start_pimeta.sh` 已内置）。
+### 2. A task fails within seconds with "target unreachable"
+- The engine does a reachability pre-check first (3~5s); an unreachable target fails fast instead of burning recon budget.
+- Check the target address/port/network. If the target is a container/range, make sure it sits on a network reachable from both the gateway and the sandbox.
+- Sandboxes (`inhouse-sess-*`) are created by the **host** Docker daemon with `--network bridge`:
+  - The target must be on a network the **host can reach** (e.g. the host docker bridge) or the sandbox can't hit it.
+  - If the target only exists on a custom compose network, the sandbox can't reach it by default — put the target on a host-visible network.
 
-## 沙箱 / Docker
+### 3. Gateway won't stop after restart / kill
+- The Web UI uses SSE (`/stream`) long-lived connections; graceful shutdown can be held open by them.
+- Always start the gateway with `--timeout-graceful-shutdown 5` (already built into `run.sh` / `start_pimeta.sh`).
 
-### 4. 沙箱容器起不来 / 攻击命令失败
-- 确认宿主有 `vxcontrol/kali-linux:latest` 镜像：`docker pull vxcontrol/kali-linux:latest`
-  （或设 `HINSE_DOCKER_IMAGE` 指向你自己的镜像）。
-- 网关容器必须能访问宿主 Docker：
-  - 挂载 socket：compose 里 `- /var/run/docker.sock:/var/run/docker.sock`
-  - 镜像内置 docker CLI。
-- 若"容器内没有 Docker daemon"，这是正常的——它走宿主 daemon（兄弟容器模式），不是嵌套 daemon。
+## Sandbox / Docker
 
-### 5. 本机构建镜像时 `apt-get`/`pip` 连不上外网
-- 检查宿主是不是被 Kubernetes/CNI 网络层限制了**容器出网**（宿主能 curl 外网、容器内不行）。
-- 这种情况 build/push 镜像走 **GitHub Actions**（CI 网络正常）即可，见 `.github/workflows/ci.yml`。
+### 4. Sandbox container won't start / attack commands fail
+- Confirm the host has the sandbox image `redbee-kali:local` (build per the README: `docker build -f Dockerfile.kali -t redbee-kali:local .`),
+  or point `HINSE_DOCKER_IMAGE` at your own working Kali image.
+- The gateway container must be able to reach the host Docker daemon:
+  - Mount the socket: `- /var/run/docker.sock:/var/run/docker.sock` in compose
+  - The platform image ships the docker CLI.
+- "No Docker daemon inside the container" is expected — it talks to the **host** daemon (sibling-container mode), not a nested daemon.
 
-## LLM / 性能
+### 5. `apt-get`/`pip` can't reach the internet while building images locally
+- Check whether the host's Kubernetes/CNI network layer blocks **egress from containers** (host can curl the internet, containers cannot).
+- In that case, build/push images via **GitHub Actions** (CI has normal network), see `.github/workflows/ci.yml`.
 
-### 6. 任务很慢 / LLM 调用挂死
-- **并发是常见根因**：多任务并行 + 大上下文会让单点 LLM 超时挂死。
-  - 调低 `PIMETA_GLOBAL_MAX_LLM_CONCURRENCY`（全平台闸门）和 `PIMETA_MAX_PARALLEL`（单任务并行）。
-- **超时配置**：非流式聚合下 `MODEL_READ_TIMEOUT` 要覆盖整段生成（大上下文可能几十秒），
-  默认 30s 在大任务上会误超时。可调大（如 240s）+ `MODEL_TIMEOUT` 同步。
-- 看网关日志里的 `[llm] ... el=`（单次调用耗时）判断是慢还是挂。
+## LLM / Performance
 
-### 7. 模型 "all available model runtimes failed"
-- 检查 `MODEL_PRIORITY` 里每个模型的端点/key 是否可用；`curl` 直连验证。
-- 首选挂了会自动降级到备用；若都失败会记 `runtime_error`，任务记录里会显示原因。
+### 6. Tasks are very slow / LLM calls hang
+- **Concurrency is the usual root cause**: parallel tasks + large contexts can time out and hang a single LLM endpoint.
+  - Lower `PIMETA_GLOBAL_MAX_LLM_CONCURRENCY` (platform-wide gate) and `PIMETA_MAX_PARALLEL` (per-task parallelism).
+- **Timeouts**: with non-streaming aggregation, `MODEL_READ_TIMEOUT` must cover the *entire* generation (large contexts can take tens of seconds).
+  The default 30s will false-timeout on big tasks. Raise it (e.g. 240s) and keep `MODEL_TIMEOUT` in sync.
+- Watch `[llm] ... el=` in the gateway log (per-call elapsed) to tell "slow" from "hung".
 
-## 知识库
+### 7. Model error "all available model runtimes failed"
+- Check that each model in `MODEL_PRIORITY` has a reachable endpoint/valid key; verify with a direct `curl`.
+- If the primary fails it auto-falls back to the backup; if all fail a `runtime_error` is recorded and the task record shows the reason.
 
-### 8. `kb_query` 查不到东西 / 检索结果不对
-- RED-KB 有治理门禁，只有 `active` 的条目才被检索到。刚 `ingest` 且未 verified 的条目不会进检索。
-- `EMBEDDING_URL` 未配置时退化为关键词检索，语义召回会差。
-- 想让某条可检索，ingest 时设 `source_type=inhouse` + `verified` + 对应治理字段
-  （见 `redkb/governance.py` 的 `governance_status_for_entry`）。
+## Knowledge Base
 
-## Docker Compose 常见
+### 8. `kb_query` returns nothing / wrong results
+- RED-KB has a governance gate: only `active` entries are searchable. Freshly ingested, unverified entries are not in the index.
+- Without `EMBEDDING_URL` configured, search degrades to keyword matching and semantic recall suffers.
+- To make an entry searchable, ingest with `source_type=inhouse` + `verified` + the matching governance fields
+  (see `governance_status_for_entry` in `redkb/governance.py`).
 
-### 9. `docker compose up` 拉取失败 / 跑不起来
-- 拉取镜像：`docker compose --profile sandbox pull`（预拉 Kali 沙箱镜像）。
-- 先 `cp platform/config.example.env platform/.env` 并填真实 LLM key，否则网关无模型可用。
-- compose 里 `REDKB_URL=http://redkb:8001`、挂 `docker.sock`、`data` 卷到 `/data`——按仓库内
-  `docker-compose.yml` 即可，不要手动改成 `127.0.0.1` 或去掉 socket。
+## Docker Compose
+
+### 9. `docker compose up` pull fails / won't run
+- Pre-pull the sandbox image: `docker compose --profile sandbox pull`
+- First `cp platform/config.example.env platform/.env` and fill in real LLM keys, or the gateway has no model to use.
+- Compose wires `REDKB_URL=http://redkb:8001`, mounts `docker.sock`, and maps the `data` volume to `/data` — just use the repo's `docker-compose.yml` as-is; don't hand-edit it to `127.0.0.1` or drop the socket.

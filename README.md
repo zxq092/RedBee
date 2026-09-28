@@ -79,7 +79,7 @@ AI pentesting today has three structural problems that remain unsolved:
 - **1,517** knowledge entries (630 attack_primitive / 881 poc) + 147 attack cases
 - One full engagement → **all 10 general technique classes flow back as authoritative**; `kb_query` top-hits every class
 
-> **No cold-start gap**: the repo ships with `redkb.seed` — 175 battle-tested skills + the seeded knowledge base above — useful from the very first run. Every run afterwards flows experience back and thickens the base.
+> **No cold-start gap**: the repo ships with `redkb.seed` — 172 battle-tested skills + the seeded knowledge base above — useful from the very first run. Every run afterwards flows experience back and thickens the base.
 
 ---
 
@@ -109,7 +109,7 @@ Tools are layered by domain: filesystem (read/bash/edit) → pentest tools (nmap
 
 The LLM decides which tool to call via structured function calling — not the unreliable "model emits JSON text" approach.
 
-### 175-Skill Library
+### 172-Skill Library
 
 Loaded on demand via the `list_skills` / `load_skill` tools, covering:
 - **vulnerabilities** (87): SQLi / XSS / SSRF / Auth Bypass / IDOR / RCE, etc.
@@ -128,7 +128,7 @@ Skills and RED-KB are two different kinds of experience assets, working together
 
 > **Skills = the textbook (static); RED-KB = the field diary (dynamic).**
 
-|  | **Skills** (175 .md files) | **RED-KB** (1500+ entries + case library) |
+|  | **Skills** (172 .md files) | **RED-KB** (1500+ entries + case library) |
 |---|---|---|
 | **What** | Methodology / operations manuals | Proven success + validated PoCs |
 | **Source** | Distilled from open-source engines and public disclosure reports (Strix / Shannon / Claude-BugHunter) | **Auto-reflux from our own engagements** — grows a bit with every run |
@@ -316,7 +316,7 @@ platform/
 ├── agents/
 │   ├── executor.py           # InhouseAgent (ReAct loop + guardrails + memory)
 │   ├── orchestrator_v2.py    # 5-phase controlled orchestration
-│   └── skills/               # 175-skill library
+│   └── skills/               # 172-skill library
 ├── redkb/                    # RED-KB knowledge-base service (:8001)
 ├── auto_ingest.py            # knowledge reflux loop (task done → distill per vuln class → ingest)
 ├── config.py                 # unified config (reads .env)

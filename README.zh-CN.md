@@ -79,7 +79,7 @@ AI 渗透目前有三个结构性难题没解决：
 - **1517 条**知识条目（630 attack_primitive / 881 poc）+ 147 条攻击案例
 - 一次完整渗透 → **10 类通用技法全部回流为 authoritative**，`kb_query` 各类均 top 命中可检索
 
-> **冷启动不空白**：仓库已随 `redkb.seed` 内置 175 个实战 skill + 上述种子知识库，首次运行即可派上用场；之后每打一次，经验继续回流，库越来越厚。
+> **冷启动不空白**：仓库已随 `redkb.seed` 内置 172 个实战 skill + 上述种子知识库，首次运行即可派上用场；之后每打一次，经验继续回流，库越来越厚。
 
 ---
 
@@ -109,7 +109,7 @@ AI 渗透目前有三个结构性难题没解决：
 
 LLM 通过结构化 function calling 决定调什么工具，不靠"模型输出 JSON 文本"这种不可靠方式。
 
-### 175 个 Skill 库
+### 172 个 Skill 库
 
 经 `list_skills` / `load_skill` 工具按需加载，覆盖：
 - **vulnerabilities**（87）：SQLi / XSS / SSRF / Auth Bypass / IDOR / RCE 等
@@ -128,7 +128,7 @@ Skills 和 RED-KB 是两类不同的经验资产，在一次任务中分工协�
 
 > **Skills = 教科书（静态）；RED-KB = 战地日记（动态）。**
 
-|  | **Skills**（175 个 .md） | **RED-KB**（1500+ 知识条目 + 案例库） |
+|  | **Skills**（172 个 .md） | **RED-KB**（1500+ 知识条目 + 案例库） |
 |---|---|---|
 | **是什么** | 方法论 / 操作手册 | 成功经验 + 实证 PoC |
 | **来源** | 蒸馏自开源引擎与公开披露报告（Strix / Shannon / Claude-BugHunter） | **我们自己的渗透任务自动回流**，每跑一次就长一点 |
@@ -315,7 +315,7 @@ platform/
 ├── agents/
 │   ├── executor.py           # InhouseAgent（ReAct 循环 + 护栏 + memory）
 │   ├── orchestrator_v2.py    # 5 阶段受控编排
-│   └── skills/               # 175 个 skill 包
+│   └── skills/               # 172 个 skill 包
 ├── redkb/                    # RED-KB 知识库服务（:8001）
 ├── auto_ingest.py            # 知识回流闭环（task done → 按漏洞类蒸馏 → 入库）
 ├── config.py                 # 统一配置（读 .env）

@@ -265,38 +265,31 @@ curl http://127.0.0.1:8000/api/task/{task_id}/board
 
 ## Docker 部署
 
-镜像由 [GitHub Actions](./.github/workflows/ci.yml) 自动构建，打 `v*` tag 即发布到 GHCR。
+### 构建并运行（标准方式）
 
-### 从发布拉取（推荐，无需本机构建）
+全部镜像由本仓库构建，无需外部镜像：
 
 ```bash
 cp platform/config.example.env platform/.env   # 填入真实 LLM key
 
-# 指向 CI 发布的镜像（平台 + Kali 沙箱，打 v* tag 自动构建多架构）
-export REDBEE_IMAGE=ghcr.io/<你的组织>/<repo>:latest
-export REDBEE_KALI_IMAGE=ghcr.io/<你的组织>/<repo>/redbee-kali:latest
-
-# 预拉 Kali 沙箱镜像（网关用它跑攻击命令）
-docker compose --profile sandbox pull
-
-# 拉取并启动网关 + RED-KB
-docker compose pull gateway redkb
-docker compose up -d
-```
-
-### 本地构建（开发/贡献）
-
-```bash
-cp platform/config.example.env platform/.env
 # 构建 Kali 沙箱镜像（自包含：Dockerfile.kali，基于公开 kalilinux/kali-rolling）
 docker compose --profile sandbox build
+
+# 构建并启动网关 + RED-KB
 docker compose up -d --build
 ```
 
-> **镜像发布路径**：默认 `REDBEE_IMAGE=redbee:local`、`REDBEE_KALI_IMAGE=redbee-kali:local`
-> （本机构建）；发布后设 `ghcr.io/<你的组织>/<repo>` 走 GHCR 拉取。
-> 多架构（amd64/arm64）由 CI 构建。Kali 沙箱镜像自包含可复现构建，
-> 也可通过 `HINSE_DOCKER_IMAGE` 换成任意可用 Kali 镜像。
+### 拉取预构建镜像（仅在已发布 release 后）
+
+[GitHub Actions](./.github/workflows/ci.yml) 在打 `v*` tag 时构建多架构（amd64/arm64）镜像并发布到 GHCR。有 release 之后：
+
+```bash
+export REDBEE_IMAGE=ghcr.io/<owner>/<repo>:latest
+export REDBEE_KALI_IMAGE=ghcr.io/<owner>/<repo>/redbee-kali:latest
+docker compose pull && docker compose up -d
+```
+
+> Kali 沙箱镜像自包含、可复现构建；也可通过 `HINSE_DOCKER_IMAGE` 换成你手上任意可用的 Kali 镜像。
 
 ### 网络要点（docker 后怎么打靶场）
 

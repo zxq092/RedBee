@@ -264,38 +264,32 @@ curl http://127.0.0.1:8000/api/task/{task_id}/board
 
 ## Docker Deployment
 
-Images are built automatically by [GitHub Actions](./.github/workflows/ci.yml); tagging `v*` publishes them to GHCR.
+### Build & Run (standard)
 
-### Pull from Release (recommended, no local build)
+Everything is built from this repo — no external images required:
 
 ```bash
 cp platform/config.example.env platform/.env   # fill in your real LLM key
 
-# point at the CI-published images (platform + Kali sandbox; multi-arch built on v* tags)
-export REDBEE_IMAGE=ghcr.io/<your-org>/<repo>:latest
-export REDBEE_KALI_IMAGE=ghcr.io/<your-org>/<repo>/redbee-kali:latest
-
-# pre-pull the Kali sandbox image (the gateway uses it to run attack commands)
-docker compose --profile sandbox pull
-
-# pull and start gateway + RED-KB
-docker compose pull gateway redkb
-docker compose up -d
-```
-
-### Local Build (development/contribution)
-
-```bash
-cp platform/config.example.env platform/.env
 # build the Kali sandbox image (self-contained: Dockerfile.kali, based on public kalilinux/kali-rolling)
 docker compose --profile sandbox build
+
+# build + start gateway + RED-KB
 docker compose up -d --build
 ```
 
-> **Image release paths**: defaults are `REDBEE_IMAGE=redbee:local`, `REDBEE_KALI_IMAGE=redbee-kali:local`
-> (local build); after release, set `ghcr.io/<your-org>/<repo>` to pull from GHCR.
-> Multi-arch (amd64/arm64) is built by CI. The Kali sandbox image is self-contained and
-> reproducibly buildable; you can also point `HINSE_DOCKER_IMAGE` at any working Kali image.
+### Pulling Prebuilt Images (only once a release exists)
+
+[GitHub Actions](./.github/workflows/ci.yml) builds multi-arch (amd64/arm64) images and publishes them to GHCR whenever a `v*` tag is pushed. Once a release is available:
+
+```bash
+export REDBEE_IMAGE=ghcr.io/<owner>/<repo>:latest
+export REDBEE_KALI_IMAGE=ghcr.io/<owner>/<repo>/redbee-kali:latest
+docker compose pull && docker compose up -d
+```
+
+> The Kali sandbox image is self-contained and reproducibly buildable; you can also point
+> `HINSE_DOCKER_IMAGE` at any working Kali image you already have.
 
 ### Networking Notes (how it hits ranges under docker)
 

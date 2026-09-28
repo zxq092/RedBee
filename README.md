@@ -1,232 +1,233 @@
-# RedBee — 自研 AI 渗透智能体
+# RedBee — Self-Built AI Penetration-Testing Agent
 
-> 给定一个目标，它自己侦察、自己打、自己出带 PoC + 证据的报告。
-> **每打完一次，成功经验按漏洞类自动蒸馏进知识库，下次同类目标更快更准。**
+> Give it a target: it reconnoiters, exploits, and writes the report with PoC + evidence — all on its own.
+> **After every run, successful techniques are distilled into the knowledge base per vulnerability class, so the next similar target goes faster and sharper.**
+
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 一秒了解它
+## The Big Picture
 
 ```mermaid
 flowchart LR
-    U(["用户 / Web UI"]) -->|"POST /api/task"| PI
+    U(["User / Web UI"]) -->|"POST /api/task"| PI
 
-    subgraph PI["PI 元网关 · FastAPI :8000"]
-        DISP["Dispatcher<br/>fan-out 派发"]
-        ROUT["ModelRouter<br/>模型路由 + 降级"]
-        PLAN["Planner<br/>选攻击模块"]
-        BOARD["漏洞板<br/>贴板 / 去重 / 互证"]
+    subgraph PI["PI meta-gateway · FastAPI :8000"]
+        DISP["Dispatcher<br/>fan-out dispatch"]
+        ROUT["ModelRouter<br/>model routing + fallback"]
+        PLAN["Planner<br/>module selection"]
+        BOARD["Vuln Board<br/>post / dedup / cross-verify"]
         DISP --> ROUT --> PLAN
     end
 
-    subgraph RB["RedBee 引擎 · 5 阶段受控编排"]
+    subgraph RB["RedBee engine · 5-phase controlled orchestration"]
         direction TB
-        S1["pre_recon<br/>KB 情报热启动"] --> S2["recon<br/>攻击面枚举"]
-        S2 --> S3["root-decide<br/>动态派模块"]
-        S3 --> S4["exploit<br/>并行子 agent · KB 强制注入"]
-        S4 --> S5["report<br/>coverage 对账"]
+        S1["pre_recon<br/>KB-intel hot start"] --> S2["recon<br/>attack-surface enumeration"]
+        S2 --> S3["root-decide<br/>dynamic module dispatch"]
+        S3 --> S4["exploit<br/>parallel sub-agents · forced KB injection"]
+        S4 --> S5["report<br/>coverage reconciliation"]
     end
 
-    KB[["RED-KB · :8001<br/>语义检索 / 蒸馏回流 / 治理门禁"]]
+    KB[["RED-KB · :8001<br/>semantic search / distill reflux / governance gate"]]
 
-    PLAN -. 派模块 .-> RB
+    PLAN -. dispatch modules .-> RB
     RB -->|findings| BOARD
-    BOARD -. "high/critical → 另一 agent 复现" .-> BOARD
+    BOARD -. "high/critical → re-proofed by another agent" .-> BOARD
     RB --> KB
-    KB -. "经验回流（越打越准）" .-> S1
+    KB -. "experience reflux (sharper over time)" .-> S1
 ```
 
-**一句话**：AI 渗透不只是"跑一次"，而是**越打越准**——经验自动沉淀为知识库资产。
+**In one line**: AI pentesting isn't about "running it once" — it's about **getting better with every run**: experience automatically accumulates into a knowledge-base asset.
 
 ---
 
-## 为什么做这件事
+## Why This Project
 
-AI 渗透目前有三个结构性难题没解决：
+AI pentesting today has three structural problems that remain unsolved:
 
-| 难题 | 表现 | 根源 |
+| Problem | Symptoms | Root Cause |
 |---|---|---|
-| **不稳定** | 模型卡住、跑偏、无限重试、跑几小时不收敛 | 把"渗透"整条交给 LLM 自由发挥，无受控边界 |
-| **无记忆** | 换个目标/环境就重新从零摸索，经验留在报告里用不上 | 无持久知识库，或 KB 与执行链路脱节 |
-| **验证不可信** | AI 自己说自己挖到了，误报高 | 发现者=验证者，无独立复现 |
+| **Unstable** | Model stalls, wanders, retries forever, doesn't converge for hours | Handing the entire "pentest" to an unconstrained LLM, no controlled boundaries |
+| **No memory** | Every new target/environment starts from scratch; experience sits unused in reports | No persistent knowledge base, or the KB is decoupled from the execution path |
+| **Untrustworthy validation** | The AI claims it found things; high false-positive rate | Discoverer = verifier, no independent reproduction |
 
-**我们的主张**：渗透是「经验活」。把经验系统化、可复用、能累加，才是 AI 渗透的核心竞争力——而不是比谁的 prompt 更长、谁的工具更多。
-
----
-
-## 实测成果
-
-### 真实漏洞靶场（DVWA）
-- **33 条 findings**（4 critical / 19 high / 9 medium / 1 low）
-- 覆盖 SQLi（报错 + 盲注）/ XSS（反射 + 存储）/ Upload→RCE / Brute Force / Session / Command Injection / CSRF / IDOR / CAPTCHA / Misconfig
-
-### OWASP LLM Top 10（llmvault）
-- 同一 session 解完 10 个 core lab
-- `core_done:true`，2400 分，flag 全从 live 响应提取
-
-### 知识库（RED-KB）
-- **1517 条**知识条目（630 attack_primitive / 881 poc）+ 147 条攻击案例
-- 一次完整渗透 → **10 类通用技法全部回流为 authoritative**，`kb_query` 各类均 top 命中可检索
-
-> **冷启动不空白**：仓库已随 `redkb.seed` 内置 175 个实战 skill + 上述种子知识库，首次运行即可派上用场；之后每打一次，经验继续回流，库越来越厚。
+**Our thesis**: penetration testing is an *experience business*. Systematizing, reusing, and accumulating experience is the core competitiveness of AI pentesting — not who has the longer prompt or the bigger toolbox.
 
 ---
 
-## 核心特性
+## Field Results
 
-### 知识回流闭环
+### Real-Vulnerability Range (DVWA)
+- **33 findings** (4 critical / 19 high / 9 medium / 1 low)
+- Coverage: SQLi (error + blind) / XSS (reflected + stored) / Upload→RCE / Brute Force / Session / Command Injection / CSRF / IDOR / CAPTCHA / Misconfiguration
+
+### OWASP LLM Top 10 (llmvault)
+- All 10 core labs solved within a single session
+- `core_done:true`, 2400 points, every flag extracted from live responses
+
+### Knowledge Base (RED-KB)
+- **1,517** knowledge entries (630 attack_primitive / 881 poc) + 147 attack cases
+- One full engagement → **all 10 general technique classes flow back as authoritative**; `kb_query` top-hits every class
+
+> **No cold-start gap**: the repo ships with `redkb.seed` — 175 battle-tested skills + the seeded knowledge base above — useful from the very first run. Every run afterwards flows experience back and thickens the base.
+
+---
+
+## Core Features
+
+### Knowledge Reflux Loop
 
 ```
-渗透 → submit_finding(带 PoC + 证据) → 治理门禁(是否带 working PoC)
-  → 按漏洞类分蒸馏 → authoritative 提升 → 下次 kb_query 命中 → 热启动
+engagement → submit_finding (with PoC + evidence) → governance gate (has a working PoC?)
+  → distill per vulnerability class → promote to authoritative → next kb_query hit → hot start
 ```
 
-**铁律**：只有带 working PoC + 证据的实战经验才入库。空喊"疑似漏洞"不进 KB。
+**Iron rule**: only field experience with a working PoC + evidence enters the KB. "Suspected vuln" chatter stays out.
 
-这意味着：它不是用完即弃的工具，而是**越用越强的资产**。
+That makes this not a disposable tool, but an **asset that grows stronger with use**.
 
-### 护栏四件套
+### The Four Guardrails
 
-1. **输入验证**：所有工具调用参数校验，友好错误
-2. **输出截断**：工具输出 8000 字符封顶，防 context 膨胀
-3. **上下文压缩**：按总大小 80000 触发，从最老 tool output 起换占位符
-4. **Skill 注入截断**：大 skill（23K+）取前 8000 字符
+1. **Input validation**: all tool-call parameters validated, friendly errors
+2. **Output truncation**: tool output capped at 8000 chars, prevents context bloat
+3. **Context compaction**: triggered by total size (80000), swaps oldest tool outputs for placeholders
+4. **Skill-injection truncation**: large skills (23K+) take the first 8000 chars
 
-### 63 个工具 + OpenAI Function Calling
+### 63 Tools + OpenAI Function Calling
 
-工具按来源分层：文件系统（读/bash/edit）→ 渗透工具（nmap/sqlmap/terminal）→ 浏览器（playwright）→ DB 操作（memory/findings）→ KB 查询（kb_query/store）→ HTTP 请求。
+Tools are layered by domain: filesystem (read/bash/edit) → pentest tools (nmap/sqlmap/terminal) → browser (playwright) → DB ops (memory/findings) → KB queries (kb_query/store) → HTTP requests.
 
-LLM 通过结构化 function calling 决定调什么工具，不靠"模型输出 JSON 文本"这种不可靠方式。
+The LLM decides which tool to call via structured function calling — not the unreliable "model emits JSON text" approach.
 
-### 175 个 Skill 库
+### 175-Skill Library
 
-经 `list_skills` / `load_skill` 工具按需加载，覆盖：
-- **vulnerabilities**（87）：SQLi / XSS / SSRF / Auth Bypass / IDOR / RCE 等
-- **reconnaissance**：信息收集、端口扫描、子域枚举
-- **reporting**：Triage 7-Question Gate、报告模板、证据 hygiene
-- **enterprise**：M365、Okta、vCenter、云 IAM
-- **methodology**：Bug Bounty 方法论、SRC 挖洞、渗透测试流程
-- **tooling**：nmap / sqlmap / nuclei / httpx / ffuf 等命令行 playbook
-- **protocols**：GraphQL / WebSocket / OAuth
-- **technologies**：Django / Express / FastAPI / Next.js / 云服务
-- **cloud**：AWS / Azure / GCP / Kubernetes
+Loaded on demand via the `list_skills` / `load_skill` tools, covering:
+- **vulnerabilities** (87): SQLi / XSS / SSRF / Auth Bypass / IDOR / RCE, etc.
+- **reconnaissance**: info gathering, port scanning, subdomain enumeration
+- **reporting**: Triage 7-Question Gate, report templates, evidence hygiene
+- **enterprise**: M365, Okta, vCenter, cloud IAM
+- **methodology**: Bug Bounty methodology, SRC hunting, pentest workflows
+- **tooling**: nmap / sqlmap / nuclei / httpx / ffuf command-line playbooks
+- **protocols**: GraphQL / WebSocket / OAuth
+- **technologies**: Django / Express / FastAPI / Next.js / cloud services
+- **cloud**: AWS / Azure / GCP / Kubernetes
 
-### Skills vs RED-KB：经验的两个载体
+### Skills vs RED-KB: Two Carriers of Experience
 
-Skills 和 RED-KB 是两类不同的经验资产，在一次任务中分工协作：
+Skills and RED-KB are two different kinds of experience assets, working together in every task:
 
-> **Skills = 教科书（静态）；RED-KB = 战地日记（动态）。**
+> **Skills = the textbook (static); RED-KB = the field diary (dynamic).**
 
-|  | **Skills**（175 个 .md） | **RED-KB**（1500+ 知识条目 + 案例库） |
+|  | **Skills** (175 .md files) | **RED-KB** (1500+ entries + case library) |
 |---|---|---|
-| **是什么** | 方法论 / 操作手册 | 成功经验 + 实证 PoC |
-| **来源** | 蒸馏自开源引擎与公开披露报告（Strix / Shannon / Claude-BugHunter） | **我们自己的渗透任务自动回流**，每跑一次就长一点 |
-| **会变吗** | ❌ 静态，需人工添加 | ✅ 自动增长：运行中 finding 逐条入 poc + 收口按漏洞类蒸馏成通用技法 |
-| **怎么查** | `load_skill("sql-injection")`——**按名字**取 | `kb_query("JWT 怎么绕过")`——**语义检索**（向量相似度） |
-| **内容** | "这类漏洞通用怎么打、用什么工具、注意什么" | "上次实际用这条 PoC 打穿了这类问题（去标识化，跨靶场可迁移）" |
-| **治理** | 人工策展质量 | 门禁：verified / sanitized / scope，未验证的经验挡在检索外 |
+| **What** | Methodology / operations manuals | Proven success + validated PoCs |
+| **Source** | Distilled from open-source engines and public disclosure reports (Strix / Shannon / Claude-BugHunter) | **Auto-reflux from our own engagements** — grows a bit with every run |
+| **Changes?** | ❌ Static, human-curated | ✅ Auto-growing: findings enter as pocs during a run + distilled into general techniques at close-out |
+| **How to query** | `load_skill("sql-injection")` — **by name** | `kb_query("how to bypass JWT")` — **semantic search** (vector similarity) |
+| **Content** | "How this vuln class is generally attacked, which tools, what to watch for" | "Last time we actually broke through this class with this PoC (de-identified, transferable across targets)" |
+| **Governance** | Human curation | Gates: verified / sanitized / scope — unverified experience is blocked from search |
 
-**一次任务里的配合**：
+**How they cooperate in one task**:
 
-1. 派发时自动注入**模块 skill** 进子 agent prompt（sqli 模块 → sql-injection 教科书）
-2. agent 运行中用 `kb_query` 翻**战地日记**（"这种情况我们之前怎么破的？"）
-3. 打出 finding → **回流 RED-KB**（skills 永远不变）
-4. 下次任务：教科书没变，日记厚了 → 同类题更快打通
+1. On dispatch, the **module skill** is auto-injected into the sub-agent's prompt (sqli module → sql-injection textbook)
+2. During the run the agent `kb_query`s the **field diary** ("how did we break this situation before?")
+3. Finding produced → **refluxed into RED-KB** (skills never change)
+4. Next task: textbook unchanged, diary thicker → same class broken faster
 
-类比：Skills 是《内科学》教材，RED-KB 是主治大夫自己的病例本——教材教通用原理，病例本记"这种病人我实际怎么治好的"，而且只有真正治好过、带证据的才收进病例本。
+Analogy: Skills are the internal-medicine textbook; RED-KB is the attending physician's own case notebook — the textbook teaches general principles, the notebook records "how I actually cured this patient" — and only cases truly cured, with evidence, make it into the notebook.
 
-### 模型路由 + 自动降级
+### Model Routing + Automatic Fallback
 
 ```python
-# .env 配置
-MODEL_PRIORITY=DeepSeek-V4-Flash,qwen3.8-27b
-# 首选挂 → 自动降级到备用，无需改代码
+# .env config
+MODEL_PRIORITY=your-primary-model,your-backup-model
+# primary dies → auto-fall back to backup, no code change
 ```
 
 ---
 
-## 适用场景
+## Use Cases
 
-这不是一个"打 CTF 用"的工具。它面向的是**真实渗透测试全流程**：
+This is not a "CTF solver". It targets the **full real-world pentest workflow**:
 
-| 场景 | 怎么做 |
+| Scenario | How |
 |---|---|
-| **Web 应用渗透** | `POST /api/task {target, session_id, task: "全模块渗透"}` |
-| **API 安全测试** | 提供 OpenAPI schema，自动枚举端点并攻击 OWASP API Top 10 |
-| **LLM 应用安全** | 针对 LLM 靶场按 OWASP LLM Top 10 逐类突破 |
-| **企业资产侦察** | 给定 IP/域名，自动枚举攻击面 + 漏洞验证 |
-| **持续知识积累** | 每次渗透结果回流 KB，团队共享经验 |
+| **Web app pentest** | `POST /api/task {target, session_id, task: "full-module pentest"}` |
+| **API security testing** | Provide an OpenAPI schema; auto-enumerates endpoints and attacks OWASP API Top 10 |
+| **LLM app security** | Break through an LLM range class by class per OWASP LLM Top 10 |
+| **Enterprise asset recon** | Given an IP/domain, auto-enumerate attack surface + verify vulns |
+| **Continuous knowledge accumulation** | Every engagement refluxes into the KB; the team shares experience |
 
-已知靶场（有 `data/targets/<id>.md` 档案的，如 dvwa/juice）在 `PIMETA_KNOWN_FAST=1` 时跳过侦察、直接热启动。真实目标直接给 URL 或 IP 即可，跑完会自动沉淀靶场档案，下次同类目标更快。
+Known targets (those with a `data/targets/<id>.md` profile, e.g. dvwa/juice) skip recon and hot-start directly when `PIMETA_KNOWN_FAST=1`. For real targets just give a URL or IP; after the run a target profile is auto-deposited, so the next similar target is faster.
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 前提
+### Prerequisites
 
 - Python 3.11+
 - pip
-- **OpenAI 兼容 LLM 端点 + API Key**（必填；如 vLLM / DeepSeek / OpenAI 等）
-- embedding 端点（可选；不填 RED-KB 语义检索退化为关键词检索）
-- Docker（**推荐必装**：Kali 攻击沙箱跑在 Docker 容器里，sqlmap 利用/terminal 等渗透工具依赖它；
-  无 Docker 时仅 HTTP/浏览器/宿主 nmap 类侦察可用）
-- nmap（宿主侧，`apt install nmap`）
+- **An OpenAI-compatible LLM endpoint + API key** (required; e.g. vLLM / DeepSeek / OpenAI)
+- An embedding endpoint (optional; without it RED-KB semantic search degrades to keyword search)
+- Docker (**strongly recommended**: the Kali attack sandbox runs as a Docker container, and exploit tools like sqlmap/terminal depend on it; without Docker only HTTP/browser/host-nmap style recon is available)
+- nmap (host side, `apt install nmap`)
 
-### 1. 克隆并安装依赖
+### 1. Clone and Install Dependencies
 
 ```bash
 git clone <repo-url>
 cd <repo>
 pip install -r platform/requirements.txt
-python -m playwright install chromium --with-deps   # browser 工具用（不用浏览器可跳过）
+python -m playwright install chromium --with-deps   # for the browser tool (skip if not using the browser)
 ```
 
-### 2. 配置
+### 2. Configure
 
 ```bash
 cp platform/config.example.env platform/.env
-# 填入 LLM 端点/Key（第 1 节，必填）；embedding 端点（第 2 节，可选）
+# fill in the LLM endpoint/key (section 1, required); embedding endpoint (section 2, optional)
 ```
 
-### 3. 构建 Kali 攻击沙箱镜像（Docker 部署跳过本步，compose 会自动构建）
+### 3. Build the Kali Attack Sandbox Image (skip for Docker deployment — compose builds it)
 
 ```bash
 docker build -f Dockerfile.kali -t redbee-kali:local .
 ```
 
-### 4. 初始化知识库 + 启动服务
+### 4. Initialize the Knowledge Base + Start Services
 
 ```bash
 cd platform
-python3 -m redkb.seed          # 初始化 RED-KB（幂等，重复运行无害）
-bash run.sh                    # 启动 RED-KB(:8001) + PI 网关(:8000)
+python3 -m redkb.seed          # initialize RED-KB (idempotent, safe to re-run)
+bash run.sh                    # start RED-KB(:8001) + PI gateway(:8000)
 ```
 
-`run.sh` 一步启动两个服务。若需分离模式：
+`run.sh` starts both services in one shot. If you need separated mode:
 ```bash
-bash start_redkb.sh   # RED-KB :8001（后台，绑定 0.0.0.0）
-bash start_pimeta.sh  # PI 网关 :8000（后台，绑定 0.0.0.0）
+bash start_redkb.sh   # RED-KB :8001 (detached, binds 0.0.0.0)
+bash start_pimeta.sh  # PI gateway :8000 (detached, binds 0.0.0.0)
 ```
-`start_*.sh` 绑定 `0.0.0.0`，局域网/容器内可直接访问。
+`start_*.sh` bind `0.0.0.0`, directly reachable from LAN/containers.
 
-### 5. 准备一个目标（可选）
+### 5. Prepare a Target (Optional)
 
-引擎打**任意授权目标**（URL / IP）。想先拿公开靶场练手，用官方仓库即可（本仓库不捆绑靶场源码）：
+The engine attacks **any authorized target** (URL / IP). To practice on public ranges first, use the official images (this repo does not bundle range source):
 
 ```bash
-# DVWA（经典 Web 漏洞靶场；登录 admin/password，先点 "Create/Reset Database"）
+# DVWA (classic web vuln range; log in admin/password, click "Create/Reset Database" first)
 docker run -d -p 8081:80 citizenstig/dvwa
 
 # OWASP Juice Shop
 docker run -d -p 3000:3000 bkimminich/juice-shop
 ```
 
-或直接指向你自己部署的目标。
+Or point it at your own deployed target.
 
-### 6. 派发任务
+### 6. Dispatch a Task
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/task \
@@ -235,114 +236,115 @@ curl -X POST http://127.0.0.1:8000/api/task \
     "target": "http://127.0.0.1:8081",
     "target_id": "dvwa",
     "session_id": "my-first-session",
-    "task": "对目标进行全模块渗透测试"
+    "task": "Run a full-module penetration test against the target"
   }'
 ```
 
-### 7. 查看进度
+### 7. Watch Progress
 
 ```bash
-# 实时快照
+# live snapshot
 curl http://127.0.0.1:8000/api/task/{task_id}/live
 
-# SSE 流式推送（推荐）
+# SSE stream push (recommended)
 curl -N http://127.0.0.1:8000/api/task/{task_id}/stream
 
-# 漏洞板
+# vulnerability board
 curl http://127.0.0.1:8000/api/task/{task_id}/board
 ```
 
 ---
 
-## Docker 部署
+## Docker Deployment
 
-镜像由 [GitHub Actions](./.github/workflows/ci.yml) 自动构建，打 `v*` tag 即发布到 GHCR。
+Images are built automatically by [GitHub Actions](./.github/workflows/ci.yml); tagging `v*` publishes them to GHCR.
 
-### 从发布拉取（推荐，无需本机构建）
+### Pull from Release (recommended, no local build)
 
 ```bash
-cp platform/config.example.env platform/.env   # 填入真实 LLM key
+cp platform/config.example.env platform/.env   # fill in your real LLM key
 
-# 指向 CI 发布的镜像（平台 + Kali 沙箱，打 v* tag 自动构建多架构）
-export REDBEE_IMAGE=ghcr.io/<你的组织>/<repo>:latest
-export REDBEE_KALI_IMAGE=ghcr.io/<你的组织>/<repo>/redbee-kali:latest
+# point at the CI-published images (platform + Kali sandbox; multi-arch built on v* tags)
+export REDBEE_IMAGE=ghcr.io/<your-org>/<repo>:latest
+export REDBEE_KALI_IMAGE=ghcr.io/<your-org>/<repo>/redbee-kali:latest
 
-# 预拉 Kali 沙箱镜像（网关用它跑攻击命令）
+# pre-pull the Kali sandbox image (the gateway uses it to run attack commands)
 docker compose --profile sandbox pull
 
-# 拉取并启动网关 + RED-KB
+# pull and start gateway + RED-KB
 docker compose pull gateway redkb
 docker compose up -d
 ```
 
-### 本地构建（开发/贡献）
+### Local Build (development/contribution)
 
 ```bash
 cp platform/config.example.env platform/.env
-# 构建 Kali 沙箱镜像（自包含：Dockerfile.kali，基于公开 kalilinux/kali-rolling）
+# build the Kali sandbox image (self-contained: Dockerfile.kali, based on public kalilinux/kali-rolling)
 docker compose --profile sandbox build
 docker compose up -d --build
 ```
 
-> **镜像发布路径**：默认 `REDBEE_IMAGE=redbee:local`、`REDBEE_KALI_IMAGE=redbee-kali:local`
-> （本机构建）；发布后设 `ghcr.io/<你的组织>/<repo>` 走 GHCR 拉取。
-> 多架构（amd64/arm64）由 CI 构建。Kali 沙箱镜像自包含可复现构建，
-> 也可通过 `HINSE_DOCKER_IMAGE` 换成任意可用 Kali 镜像。
+> **Image release paths**: defaults are `REDBEE_IMAGE=redbee:local`, `REDBEE_KALI_IMAGE=redbee-kali:local`
+> (local build); after release, set `ghcr.io/<your-org>/<repo>` to pull from GHCR.
+> Multi-arch (amd64/arm64) is built by CI. The Kali sandbox image is self-contained and
+> reproducibly buildable; you can also point `HINSE_DOCKER_IMAGE` at any working Kali image.
 
-### 网络要点（docker 后怎么打靶场）
+### Networking Notes (how it hits ranges under docker)
 
-- 网关容器通过挂载的宿主 Docker socket（`/var/run/docker.sock`）调**宿主 daemon** 启动
-  Kali 沙箱（`inhouse-sess-*`，`--network bridge`）——沙箱是宿主的**兄弟容器**，
-  攻击目标网络（如宿主的 docker bridge）行为与源码直接运行**完全一致**，无回归。
-- 唯一变化：网关容器内访问 RED-KB 用 compose 服务名 `redkb:8001`（compose 已配好），
-  不再是 `127.0.0.1`（容器内回环指不到另一服务）。
+- The gateway container uses the mounted host Docker socket (`/var/run/docker.sock`) to start the
+  Kali sandbox (e.g. `inhouse-sess-*`, `--network bridge`) via the **host daemon** — the sandbox is a
+  **sibling container** of the host, so target networking (e.g. the host's docker bridge) behaves
+  **identically** to running from source. No regression.
+- The only change: inside the gateway container, RED-KB is reached via the compose service name
+  `redkb:8001` (already wired in compose), not `127.0.0.1` (container loopback can't reach another service).
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
 platform/
-├── pi_meta/                  # PI 元网关（FastAPI）
-│   ├── app.py                # Web / 会话 / 任务 / 报告
-│   ├── orchestrator.py       # 漏洞板协调层（贴板/去重/派另一agent复现）
-│   ├── board.py              # findings 板
-│   ├── planner.py            # 模块选择
-│   ├── model_router.py       # 模型路由 + 自动降级
-│   └── real_dispatch.py      # 引擎分发
+├── pi_meta/                  # PI meta-gateway (FastAPI)
+│   ├── app.py                # Web / sessions / tasks / reports
+│   ├── orchestrator.py       # vuln-board coordination (post/dedup/dispatch re-proof)
+│   ├── board.py              # findings board
+│   ├── planner.py            # module selection
+│   ├── model_router.py       # model routing + auto fallback
+│   └── real_dispatch.py      # engine dispatch
 ├── agents/
-│   ├── executor.py           # InhouseAgent（ReAct 循环 + 护栏 + memory）
-│   ├── orchestrator_v2.py    # 5 阶段受控编排
-│   └── skills/               # 175 个 skill 包
-├── redkb/                    # RED-KB 知识库服务（:8001）
-├── auto_ingest.py            # 知识回流闭环（task done → 按漏洞类蒸馏 → 入库）
-├── config.py                 # 统一配置（读 .env）
+│   ├── executor.py           # InhouseAgent (ReAct loop + guardrails + memory)
+│   ├── orchestrator_v2.py    # 5-phase controlled orchestration
+│   └── skills/               # 175-skill library
+├── redkb/                    # RED-KB knowledge-base service (:8001)
+├── auto_ingest.py            # knowledge reflux loop (task done → distill per vuln class → ingest)
+├── config.py                 # unified config (reads .env)
 ├── requirements.txt
 └── tests/
 ```
 
-`data/` 是运行时数据（`redkb.db` 知识库 + `targets/<id>.md` 靶场档案），首次运行自动创建，不入库。
+`data/` is runtime data (`redkb.db` knowledge base + `targets/<id>.md` target profiles), auto-created on first run, not committed.
 
 ---
 
-## 设计文档
+## Design Docs
 
-架构与知识库的设计细节见项目 Wiki / Issues。核心模块（`pi_meta/`、`agents/`、`redkb/`）的 docstring 里也有对应说明。
+Architecture and knowledge-base design details live in the project Wiki / Issues. Core modules (`pi_meta/`, `agents/`, `redkb/`) also carry docstrings explaining their design.
 
-自部署遇到问题先看 **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**（连接/沙箱/LLM 超时/知识库检索等常见坑）。
+Hit a snag self-deploying? Start with **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** (common pitfalls: connectivity / sandbox / LLM timeouts / KB search).
 
 ---
 
-## 社区与贡献
+## Community & Contribution
 
-- **Issue**：欢迎提 bug、建议、新 skill 贡献
-- **Skill 贡献**：按 `skills/README.md` 格式写一个 markdown 提 PR
-- **知识回流**：提交 `submit_finding` 带 PoC + 证据，自动蒸馏进 RED-KB
+- **Issues**: bugs, suggestions, and new-skill contributions welcome
+- **Skill contributions**: write a markdown following the `skills/README.md` format and open a PR
+- **Knowledge reflux**: submit `submit_finding` with PoC + evidence; it is auto-distilled into RED-KB
 
 ---
 
 ## License
 
-MIT — 见 [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)
 
-> 注：`platform/agents/skills/` 内含蒸馏自其他开源项目的 skill，各自保留原有许可证与署名（见该目录 `LICENSE` / `PROVENANCE.md`）。
+> Note: `platform/agents/skills/` contains skills distilled from other open-source projects, each retaining its original license and attribution (see that directory's `LICENSE` / `PROVENANCE.md`).

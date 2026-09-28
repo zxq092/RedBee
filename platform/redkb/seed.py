@@ -1,10 +1,40 @@
 from .schemas import KnowledgeEntry
-from . import store
+from . import store, vector
+import glob
 import json
+import os
+
+
+def _seed_curated():
+    """加载仓库内置的已策展脱敏种子(seed_data/*.jsonl)。
+    trusted 模式按原治理状态落库(authoritative 不被降级);向量批量计算。幂等:稳定 id。"""
+    d = os.path.join(os.path.dirname(__file__), "seed_data")
+    paths = sorted(glob.glob(os.path.join(d, "*.jsonl"))) if os.path.isdir(d) else []
+    objs = []
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    objs.append(json.loads(line))
+    if not objs:
+        return 0
+    entries = [KnowledgeEntry.model_validate(o) for o in objs]
+    vecs: dict[str, bytes] = {}
+    if vector.enabled():
+        try:
+            for e, v in zip(entries, vector.embed_batch([store._text_of(e) for e in entries])):
+                vecs[e.id] = vector.pack(v)
+        except Exception:
+            vecs = {}
+    for e in entries:
+        store.ingest(e, trusted=True, vec=vecs.get(e.id))
+    return len(entries)
 
 
 def seed():
-    """定型知识种子(设计 §3-§8)。幂等:稳定 id。"""
+    """定型知识种子(设计 §3-§8)+ 策展通用知识。幂等:稳定 id。"""
+    _seed_curated()
     entries = [
         # ---- 通用层(scope=all,换目标可用) ----
         KnowledgeEntry(

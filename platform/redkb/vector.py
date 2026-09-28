@@ -31,8 +31,25 @@ def embed(text: str) -> list[float]:
         r = c.post(f"{EMBED_URL}/embeddings",
                    headers={"Authorization": f"Bearer {EMBED_KEY}"},
                    json={"model": EMBED_MODEL, "input": text[:8000]})
-        r.raise_for_status()
-        return r.json()["data"][0]["embedding"]
+    r.raise_for_status()
+    return r.json()["data"][0]["embedding"]
+
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    """批量向量化(OpenAI 兼容 input 列表,按 index 排序);单批失败降级逐条。"""
+    out: list[list[float]] = []
+    for i in range(0, len(texts), 64):
+        chunk = [t[:8000] for t in texts[i:i + 64]]
+        try:
+            with httpx.Client(timeout=60) as c:
+                r = c.post(f"{EMBED_URL}/embeddings",
+                           headers={"Authorization": f"Bearer {EMBED_KEY}"},
+                           json={"model": EMBED_MODEL, "input": chunk})
+            r.raise_for_status()
+            out.extend(d["embedding"] for d in sorted(r.json()["data"], key=lambda d: d["index"]))
+        except Exception:
+            out.extend(embed(t) for t in chunk)
+    return out
 
 
 def cosine(a: list[float], b: list[float]) -> float:

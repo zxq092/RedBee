@@ -572,14 +572,18 @@ def _actor_allowed(actor: str | None) -> bool:
     return actor_is_service(actor) or actor_is_admin(actor)
 
 
-def ingest(entry: KnowledgeEntry | dict[str, Any]) -> str:
+def ingest(entry: KnowledgeEntry | dict[str, Any], trusted: bool = False, vec: Optional[bytes] = None) -> str:
+    """入库。trusted=True 用于仓库内置的已策展种子(已过脱敏审计):
+    跳过 sanitize 重审与状态降级,按原治理状态落库;vec 为预计算向量(批量场景)。"""
     entry = KnowledgeEntry.model_validate(entry)
     source_type, legacy_source = normalize_source_tuple(entry.source_type or "legacy", entry.legacy_source)
     entry.source_type = source_type
     entry.legacy_source = legacy_source
-    check = sanitize_text(entry.content_redacted or entry.content)
+    check = None if trusted else sanitize_text(entry.content_redacted or entry.content)
     now = utcnow()
-    if not check.sanitized:
+    if trusted:
+        pass
+    elif not check.sanitized:
         entry.sanitization_status = "quarantined" if check.reason_code == "kb-query-command" else "needs_review"
         entry.data_quality_status = "quarantined" if entry.sanitization_status == "quarantined" else "reviewing"
         entry.validation_status = "unverified"
@@ -604,7 +608,7 @@ def ingest(entry: KnowledgeEntry | dict[str, Any]) -> str:
         if entry.status not in {"candidate", "disabled"}:
             entry.status = "candidate"
     entry.redacted_content_hash = entry.redacted_content_hash or hash_text(entry.content_redacted or entry.content)
-    entry.content_hash = entry.content_hash or check.raw_content_hash or hash_text(entry.content_redacted or entry.content)
+    entry.content_hash = entry.content_hash or (check.raw_content_hash if check else None) or hash_text(entry.content_redacted or entry.content)
     entry.raw_content_hash = entry.raw_content_hash or entry.content_hash
     entry.version = entry.version or 1
     entry.id = entry.id or f"kb_{uuid.uuid4().hex[:10]}"
@@ -620,7 +624,10 @@ def ingest(entry: KnowledgeEntry | dict[str, Any]) -> str:
             if existing and existing[1] == entry.redacted_content_hash:
                 return entry.id
             current_version = int(existing[0]) if existing else 0
-            vec = _vect_of(entry) if governance_status_for_entry(entry) == "active" else None
+            if governance_status_for_entry(entry) != "active":
+                vec = None
+            elif vec is None:
+                vec = _vect_of(entry)
             cur.execute(
                 "INSERT INTO knowledge_versions(knowledge_id,version,content_hash,content_redacted,created_at) VALUES (?,?,?,?,?)",
                 (entry.id, current_version + 1, entry.content_hash, entry.content_redacted or entry.content, now),

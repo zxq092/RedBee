@@ -12,32 +12,39 @@
 ## The Big Picture
 
 ```mermaid
-flowchart LR
-    U(["User / Web UI"]) -->|"POST /api/task"| PI
+flowchart TD
+    U(["User / Web UI"]) --> G
 
-    subgraph PI["PI meta-gateway · FastAPI :8000"]
-        DISP["Dispatcher<br/>fan-out dispatch"]
-        ROUT["ModelRouter<br/>model routing + fallback"]
-        PLAN["Planner<br/>module selection"]
-        BOARD["Vuln Board<br/>post / dedup / cross-verify"]
-        DISP --> ROUT --> PLAN
-    end
-
-    subgraph RB["RedBee engine · 5-phase controlled orchestration"]
+    subgraph GW["PI Gateway · FastAPI :8000"]
         direction TB
-        S1["pre_recon<br/>KB-intel hot start"] --> S2["recon<br/>attack-surface enumeration"]
-        S2 --> S3["root-decide<br/>dynamic module dispatch"]
-        S3 --> S4["exploit<br/>parallel sub-agents · forced KB injection"]
-        S4 --> S5["report<br/>coverage reconciliation"]
+        G["Dispatcher<br/>fan-out"] --> M["ModelRouter<br/>priority + fallback"]
+        M --> P["Planner<br/>module selection"]
     end
 
-    KB[["RED-KB · :8001<br/>semantic search / distill reflux / governance gate"]]
+    P -->|"dispatch modules"| S1
 
-    PLAN -. dispatch modules .-> RB
-    RB -->|findings| BOARD
-    BOARD -. "high/critical → re-proofed by another agent" .-> BOARD
-    RB --> KB
-    KB -. "experience reflux (sharper over time)" .-> S1
+    subgraph ENG["RedBee Engine · 5-phase controlled pipeline"]
+        direction TB
+        S1["1 · pre_recon<br/>KB hot start"] --> S2["2 · recon<br/>surface enumeration"]
+        S2 --> S3["3 · root-decide<br/>dynamic modules"]
+        S3 --> S4["4 · exploit<br/>parallel sub-agents"]
+        S4 --> S5["5 · report<br/>coverage reconciliation"]
+    end
+
+    S4 -->|"findings + PoC"| B["Vuln Board<br/>dedup · cross-verify"]
+    B -.->|"high/critical → another agent re-proves"| S4
+
+    B -->|"verified experience, distilled per vuln class"| K[["RED-KB · :8001<br/>semantic search · governance gate"]]
+    K -.->|"proven techniques → next hot start"| S1
+
+    classDef gw fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef eng fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef board fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+    classDef kb fill:#fef7e0,stroke:#f9ab00,color:#1a1a1a
+    class G,M,P gw
+    class S1,S2,S3,S4,S5 eng
+    class B board
+    class K kb
 ```
 
 **In one line**: AI pentesting isn't about "running it once" — it's about **getting better with every run**: experience automatically accumulates into a knowledge-base asset.

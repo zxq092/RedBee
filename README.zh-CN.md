@@ -12,32 +12,39 @@
 ## 一秒了解它
 
 ```mermaid
-flowchart LR
-    U(["用户 / Web UI"]) -->|"POST /api/task"| PI
+flowchart TD
+    U(["用户 / Web UI"]) --> G
 
-    subgraph PI["PI 元网关 · FastAPI :8000"]
-        DISP["Dispatcher<br/>fan-out 派发"]
-        ROUT["ModelRouter<br/>模型路由 + 降级"]
-        PLAN["Planner<br/>选攻击模块"]
-        BOARD["漏洞板<br/>贴板 / 去重 / 互证"]
-        DISP --> ROUT --> PLAN
-    end
-
-    subgraph RB["RedBee 引擎 · 5 阶段受控编排"]
+    subgraph GW["PI 元网关 · FastAPI :8000"]
         direction TB
-        S1["pre_recon<br/>KB 情报热启动"] --> S2["recon<br/>攻击面枚举"]
-        S2 --> S3["root-decide<br/>动态派模块"]
-        S3 --> S4["exploit<br/>并行子 agent · KB 强制注入"]
-        S4 --> S5["report<br/>coverage 对账"]
+        G["Dispatcher<br/>fan-out 派发"] --> M["ModelRouter<br/>模型路由 + 降级"]
+        M --> P["Planner<br/>模块选择"]
     end
 
-    KB[["RED-KB · :8001<br/>语义检索 / 蒸馏回流 / 治理门禁"]]
+    P -->|"派发模块"| S1
 
-    PLAN -. 派模块 .-> RB
-    RB -->|findings| BOARD
-    BOARD -. "high/critical → 另一 agent 复现" .-> BOARD
-    RB --> KB
-    KB -. "经验回流（越打越准）" .-> S1
+    subgraph ENG["RedBee 引擎 · 5 阶段受控流水线"]
+        direction TB
+        S1["1 · pre_recon<br/>KB 热启动"] --> S2["2 · recon<br/>攻击面枚举"]
+        S2 --> S3["3 · root-decide<br/>动态派模块"]
+        S3 --> S4["4 · exploit<br/>并行子 agent"]
+        S4 --> S5["5 · report<br/>coverage 对账"]
+    end
+
+    S4 -->|"findings + PoC"| B["漏洞板<br/>去重 · 互证"]
+    B -.->|"high/critical → 另一 agent 复现"| S4
+
+    B -->|"verified 经验按漏洞类蒸馏"| K[["RED-KB · :8001<br/>语义检索 · 治理门禁"]]
+    K -.->|"已验证技法 → 下次热启动"| S1
+
+    classDef gw fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef eng fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef board fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+    classDef kb fill:#fef7e0,stroke:#f9ab00,color:#1a1a1a
+    class G,M,P gw
+    class S1,S2,S3,S4,S5 eng
+    class B board
+    class K kb
 ```
 
 **一句话**：AI 渗透不只是"跑一次"，而是**越打越准**——经验自动沉淀为知识库资产。

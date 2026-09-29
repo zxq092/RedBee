@@ -392,15 +392,15 @@
 <body>
 <div id="app">
   <aside>
-    <div class="brand">渗透智能体<small>PI Meta · RedBee</small></div>
+    <div class="brand"><span data-i18n="brand">渗透智能体</span><small>PI Meta · RedBee</small></div>
     <button data-i18n="newSess" class="tbtn on" id="newbtn" style="padding:10px;width:calc(100% - 24px);margin:10px 12px 6px">＋ 新建会话</button>
     <input data-i18n-ph="searchSess" id="sessSearch" placeholder="搜索会话…">
     <div id="sessToolbar">
-      <label data-i18n="selectAll" class="selall" title="勾选后批量删除"><input type="checkbox" id="selectAll"> 全选</label>
+      <label data-i18n="selectAll" class="selall" data-i18n-ti="checkBulkTitle" title="勾选后批量删除"><input type="checkbox" id="selectAll"> 全选</label>
       <button data-i18n="delSel" class="tbtn bulkd" id="bulkDelBtn" disabled>删除选中 (0)</button>
     </div>
     <button class="tbtn" id="taskViewBtn" style="margin:0 12px 6px;padding:7px;width:calc(100% - 24px)"
-            title="跨会话查看所有任务：按状态/目标/文本过滤；点行打开对应会话并定位任务记录；↻ 一键重跑">📋 任务总览</button>
+            title="跨会话查看所有任务：按状态/目标/文本过滤；点行打开对应会话并定位任务记录；↻ 一键重跑" data-i18n="taskOverview" data-i18n-ti="taskOverviewTip">📋 任务总览</button>
     <div id="sessionList"></div>
     <footer data-i18n="loadingModels" id="modelFooter">加载模型…</footer>
   </aside>
@@ -408,14 +408,14 @@
   <main>
     <div id="topbar">
       <label data-i18n="target">目标</label>
-      <input id="targetInput" list="targetOptions" placeholder="http://<target-ip>  或留空（未知靶场先侦察）" autocomplete="off">
+      <input id="targetInput" list="targetOptions" data-i18n-ph="targetPh" placeholder="http://<target-ip>  或留空（未知靶场先侦察）" autocomplete="off">
       <datalist id="targetOptions"></datalist>
       <label data-i18n="model">模型</label>
-      <select id="modelSelect" title="全局模型覆盖：影响之后所有新任务；网关重启后重置"></select>
-      <button class="tbtn" id="paramsBtn" title="任务参数：本会话固定配置，后续任务沿用（点开设置）">⚙ 参数</button>
+      <select id="modelSelect" data-i18n-ti="modelOverrideTip" title="全局模型覆盖：影响之后所有新任务；网关重启后重置"></select>
+      <button class="tbtn" id="paramsBtn" data-i18n="paramsBtn" data-i18n-ti="paramsBtnTip" title="任务参数：本会话固定配置，后续任务沿用（点开设置）">⚙ 参数</button>
       <div id="authbar">
         <button class="tbtn" id="langBtn" title="切换语言 / Switch language">中/EN</button>
-        <button class="tbtn" id="themeBtn" title="切换明暗主题（跟随系统/暗/亮）">🌙</button>
+        <button class="tbtn" id="themeBtn" data-i18n-ti="themeTip" title="切换明暗主题（跟随系统/暗/亮）">🌙</button>
         <span id="userBadge"></span>
         <input id="tokenInput" type="password" placeholder="token" style="width:110px;display:none">
         <button data-i18n="login" class="tbtn" id="loginBtn" style="display:none">登录</button>
@@ -424,44 +424,44 @@
 
     <div id="content">
       <div id="chatView">
-      <div id="msgs"><div id="empty">新建会话或选择左侧历史会话，开始渗透任务</div></div>
+      <div id="msgs"><div id="empty" data-i18n="empty">新建会话或选择左侧历史会话，开始渗透任务</div></div>
       <button data-i18n="toBottom" id="followJump">↓ 回到底部</button>
       <div id="inputbar">
         <div id="runStatus" class="run-status">
           <span class="run-dots"><i></i><i></i><i></i><i></i></span>
-          <span id="runStatusText" class="run-text">执行中…</span>
+          <span id="runStatusText" class="run-text" data-i18n="runStatusInitial">执行中…</span>
           <span class="run-spacer"></span>
-          <button class="tbtn run-stop" id="stopBtn" title="停止任务（取消子任务 + 杀沙箱容器）">■ 停止</button>
+          <button class="tbtn run-stop" id="stopBtn" data-i18n="stopBtn" data-i18n-ti="stopBtnTip" title="停止任务（取消子任务 + 杀沙箱容器）">■ 停止</button>
         </div>
         <div class="ib-row">
-        <textarea id="taskInput" placeholder="描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证"></textarea>
-        <select id="steerScope" title="指令作用域：全部=广播给所有运行中模块；选具体模块=只注入该模块专员" style="display:none">
-          <option value="">全部模块</option>
+        <textarea id="taskInput" data-i18n-ph="taskPh" placeholder="描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证"></textarea>
+        <select id="steerScope" data-i18n-ti="steerScopeTip" title="指令作用域：全部=广播给所有运行中模块；选具体模块=只注入该模块专员" style="display:none">
+          <option value="" data-i18n="allModules">全部模块</option>
         </select>
-        <button class="send" id="sendBtn">发送</button>
+        <button class="send" id="sendBtn" data-i18n="sendBtn">发送</button>
         </div>
       </div>
       </div>
       <!-- 全局任务总览视图（侧栏 📋 切换） -->
       <div id="taskView" style="display:none">
         <div class="tv-head">
-          <span class="tv-title">任务总览</span>
-          <select id="tvStatus" title="按状态过滤">
-            <option value="">全部状态</option>
-            <option value="running">运行中</option>
-            <option value="done">完成</option>
-            <option value="cancelled">已停止</option>
-            <option value="runtime_error">失败</option>
-            <option value="interrupted">中断</option>
+          <span class="tv-title" data-i18n="taskOverview">任务总览</span>
+          <select id="tvStatus" data-i18n-ti="statusFilterTip" title="按状态过滤">
+            <option value="" data-i18n="statusAll">全部状态</option>
+            <option value="running" data-i18n="statusRunning">运行中</option>
+            <option value="done" data-i18n="statusDone">完成</option>
+            <option value="cancelled" data-i18n="statusCancelled">已停止</option>
+            <option value="runtime_error" data-i18n="statusError">失败</option>
+            <option value="interrupted" data-i18n="statusInterrupted">中断</option>
           </select>
-          <input id="tvTarget" placeholder="按目标过滤…" style="width:170px">
-          <input id="tvSearch" placeholder="任务文本/ID 搜索…" style="width:170px">
+          <input id="tvTarget" data-i18n-ph="targetFilterPh" placeholder="按目标过滤…" style="width:170px">
+          <input id="tvSearch" data-i18n-ph="searchFilterPh" placeholder="任务文本/ID 搜索…" style="width:170px">
           <span class="tv-count muted"></span>
         </div>
         <div class="tv-wrap">
           <table class="tv-table">
             <thead><tr>
-              <th>任务</th><th>状态</th><th>目标</th><th>发现</th><th>模块</th><th>耗时</th><th>时间</th><th>操作</th>
+              <th data-i18n="thTask">任务</th><th data-i18n="status">状态</th><th data-i18n="target">目标</th><th data-i18n="thFindings">发现</th><th data-i18n="thModules">模块</th><th data-i18n="thDur">耗时</th><th data-i18n="thTime">时间</th><th data-i18n="thActions">操作</th>
             </tr></thead>
             <tbody id="tvBody"></tbody>
           </table>
@@ -474,53 +474,53 @@
 <div id="paramOverlay" class="param-overlay" style="display:none">
   <div class="param-drawer">
     <div class="param-head">
-      <span>任务参数</span>
-      <button class="tbtn" id="paramClose" title="关闭">✕</button>
+      <span data-i18n="paramDrawerTitle">任务参数</span>
+      <button class="tbtn" id="paramClose" data-i18n-ti="closeTip" title="关闭">✕</button>
     </div>
-    <div class="param-note">本会话的固定配置，后续任务沿用。<b>留空 = 跟随全局默认</b>（已知靶场自动套快通配方）；填了 = 仅本任务覆盖。</div>
+    <div class="param-note" data-i18n="paramNote">本会话的固定配置，后续任务沿用。留空 = 跟随全局默认（已知靶场自动套快通配方）；填了 = 仅本任务覆盖。</div>
     <div class="param-group">
-      <div class="pg-title">覆盖范围</div>
-      <label>候选模块数
-        <span class="hint">9 个 OWASP 漏洞模块里派几个（1-9）。小目标 2-3 个就够，省时间</span>
-        <input id="pMaxModules" type="number" min="1" max="9" placeholder="全局 9">
+      <div class="pg-title" data-i18n="pgCoverage">覆盖范围</div>
+      <label><span data-i18n="pModules">候选模块数</span>
+        <span class="hint" data-i18n="pModulesHint">9 个 OWASP 漏洞模块里派几个（1-9）。小目标 2-3 个就够，省时间</span>
+        <input id="pMaxModules" type="number" min="1" max="9" data-i18n-ph="phMod" placeholder="全局 9">
       </label>
       <label class="chk"><input id="pForceAll" type="checkbox">
-        <span>全派候选模块<br><span class="hint">不做智能剪枝，候选模块全部派发（已知靶场默认已开）</span></span>
+        <span><span data-i18n="pForceAll">全派候选模块</span><br><span class="hint" data-i18n="pForceAllHint">不做智能剪枝，候选模块全部派发（已知靶场默认已开）</span></span>
       </label>
     </div>
     <div class="param-group">
-      <div class="pg-title">深度与时长</div>
-      <label>单模块最大轮次
-        <span class="hint">单个模块子 agent 的 LLM 对话轮数上限，防无限游走。快扫调低</span>
-        <input id="pChildTurns" type="number" min="5" max="200" placeholder="全局 80">
+      <div class="pg-title" data-i18n="pgDepth">深度与时长</div>
+      <label><span data-i18n="pTurns">单模块最大轮次</span>
+        <span class="hint" data-i18n="pTurnsHint">单个模块子 agent 的 LLM 对话轮数上限，防无限游走。快扫调低</span>
+        <input id="pChildTurns" type="number" min="5" max="200" data-i18n-ph="phTurns" placeholder="全局 80">
       </label>
-      <label>单模块时间预算（秒）
-        <span class="hint">单个模块子 agent 最长运行时间，到点自动收口（全局默认 1800）。CTF 长跑调大</span>
-        <input id="pTaskBudget" type="number" min="300" max="21600" step="300" placeholder="全局 1800">
-      </label>
-    </div>
-    <div class="param-group">
-      <div class="pg-title">速度与容错</div>
-      <label>并行模块数
-        <span class="hint">本任务同时打几个模块（1-8）。多任务并行时别太高，防 LLM 超时挂死</span>
-        <input id="pMaxParallel" type="number" min="1" max="8" placeholder="全局 2">
-      </label>
-      <label>死模块重试冷却（秒）
-        <span class="hint">LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试</span>
-        <input id="pRetryDelay" type="number" min="0" max="600" step="30" placeholder="全局 60">
+      <label><span data-i18n="pBudget">单模块时间预算（秒）</span>
+        <span class="hint" data-i18n="pBudgetHint">单个模块子 agent 最长运行时间，到点自动收口（全局默认 1800）。CTF 长跑调大</span>
+        <input id="pTaskBudget" type="number" min="300" max="21600" step="300" data-i18n-ph="phBudget" placeholder="全局 1800">
       </label>
     </div>
     <div class="param-group">
-      <div class="pg-title">行为</div>
+      <div class="pg-title" data-i18n="pgSpeed">速度与容错</div>
+      <label><span data-i18n="pParallel">并行模块数</span>
+        <span class="hint" data-i18n="pParallelHint">本任务同时打几个模块（1-8）。多任务并行时别太高，防 LLM 超时挂死</span>
+        <input id="pMaxParallel" type="number" min="1" max="8" data-i18n-ph="phPar" placeholder="全局 2">
+      </label>
+      <label><span data-i18n="pRetry">死模块重试冷却（秒）</span>
+        <span class="hint" data-i18n="pRetryHint">LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试</span>
+        <input id="pRetryDelay" type="number" min="0" max="600" step="30" data-i18n-ph="phRetry" placeholder="全局 60">
+      </label>
+    </div>
+    <div class="param-group">
+      <div class="pg-title" data-i18n="pgBehavior">行为</div>
       <label class="chk"><input id="pSkipRecon" type="checkbox">
-        <span>跳过侦察直接打<br><span class="hint">有档案的靶场跳过重复侦察、热启动直接打（已知靶场默认已开）</span></span>
+        <span><span data-i18n="pSkipRecon">跳过侦察直接打</span><br><span class="hint" data-i18n="pSkipReconHint">有档案的靶场跳过重复侦察、热启动直接打（已知靶场默认已开）</span></span>
       </label>
     </div>
     <div class="param-group">
-      <div class="pg-title">模型</div>
-      <label>本任务模型
-        <span class="hint">指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动</span>
-        <select id="pModel"><option value="">全局自动（跟随优先级队列）</option></select>
+      <div class="pg-title" data-i18n="model">模型</div>
+      <label><span data-i18n="pModelLbl">本任务模型</span>
+        <span class="hint" data-i18n="pModelHint">指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动</span>
+        <select id="pModel"><option value="" data-i18n="autoModel">全局自动（跟随优先级队列）</option></select>
       </label>
     </div>
   </div>
@@ -600,80 +600,418 @@ function closeParamDrawer(){
   $('#paramOverlay').style.display = 'none';
 }
 const TRANS = {
-  zh: {"docTitle": "渗透智能体 · 控制台",
-  "brand": "渗透智能体",
-  "newSess": "＋ 新建会话",
-  "searchSess": "搜索会话…",
-  "selectAll": "全选",
-  "delSel": "删除选中",
-  "loadingModels": "加载模型…",
-  "target": "目标",
-  "model": "模型",
-  "login": "登录",
-  "empty": "新建会话或选择左侧历史会话，开始渗透任务",
-  "toBottom": "↓ 回到底部",
-  "pParallel": "并行模块数",
-  "pParallelHint": "本任务同时打几个模块。多任务并行时开太高会让 LLM 超时挂死",
-  "pModules": "候选模块数",
-  "pModulesHint": "9 个 OWASP 模块派几个。小目标 2-3 个就够，省时间",
-  "pTurns": "单模块最大轮次",
-  "pTurnsHint": "每个模块子 agent 的 LLM 对话轮数上限。快扫调低防游走",
-  "pBudget": "单模块时间预算（秒）",
-  "pBudgetHint": "单个模块子 agent 最长运行时间。CTF 长跑加大",
-  "pModelLbl": "本任务模型",
-  "pModelHint": "指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动",
-  "autoModel": "全局自动（跟随优先级队列）",
-  "pRetry": "死模块重试冷却（秒）",
-  "pRetryHint": "LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试",
-  "pSkipRecon": "跳过侦察直接打",
-  "pSkipReconHint": "有档案的靶场跳过重复侦察（已知靶场默认已开）",
-  "pForceAll": "全派候选模块",
-  "pForceAllHint": "不做 LLM 剪枝，候选模块全部派发（已知靶场默认已开）",
-  "taskPh": "描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证",
-  "sendP": "发送渗透任务",
-  "liveExec": "执行过程",
-  "redbeeAgent": "RedBee 自研 agent",
-  "follow": "跟随 ✓",
-  "board": "漏洞板",
-  "curReport": "当前报告 ⬇",
-  "execLog": "执行日志 ⬇"},
-  en: {"docTitle": "RedBee · Pentest Console",
-  "brand": "RedBee Console",
-  "newSess": "+ New Session",
-  "searchSess": "Search sessions…",
-  "selectAll": "Select all",
-  "delSel": "Delete selected",
-  "loadingModels": "Loading models…",
-  "target": "Target",
-  "model": "Model",
-  "login": "Login",
-  "empty": "Start a new session or select a history one on the left, then begin a pentest.",
-  "toBottom": "↓ Bottom",
-  "pParallel": "Parallel modules",
-  "pParallelHint": "How many modules to hit in parallel. Too high under multitasking can make LLM time out.",
-  "pModules": "Candidate modules",
-  "pModulesHint": "How many of the 9 OWASP modules to dispatch. 2-3 is enough for small targets.",
-  "pTurns": "Max turns per module",
-  "pTurnsHint": "LLM turn cap per module child agent. Lower for a quick scan.",
-  "pBudget": "Budget per module (s)",
-  "pBudgetHint": "Max run time per module child agent. Raise for long CTF runs.",
-  "pModelLbl": "Model for this task",
-  "pModelHint": "Bump this model to first; on failure auto-degrade to the queue. Blank = global auto.",
-  "autoModel": "Auto (follow priority queue)",
-  "pRetry": "Module retry cooldown (s)",
-  "pRetryHint": "After an LLM failure kills a module, retry it once after N s. 0 = don't retry.",
-  "pSkipRecon": "Skip recon, exploit directly",
-  "pSkipReconHint": "Known targets skip repeated recon (enabled by default for known targets).",
-  "pForceAll": "Dispatch all candidate modules",
-  "pForceAllHint": "Skip LLM pruning; dispatch all candidate modules.",
-  "taskPh": "Describe the pentest, e.g. hit all DVWA modules, one clean PoC each, don't over-verify",
-  "sendP": "Send pentest task",
-  "liveExec": "Execution",
-  "redbeeAgent": "RedBee agent",
-  "follow": "Follow ✓",
-  "board": "Vulnerabilities",
-  "curReport": "Report ⬇",
-  "execLog": "Log ⬇"},
+  zh: {
+    "docTitle": "渗透智能体 · 控制台",
+    "brand": "渗透智能体",
+    "newSess": "＋ 新建会话",
+    "searchSess": "搜索会话…",
+    "selectAll": "全选",
+    "delSel": "删除选中",
+    "loadingModels": "加载模型…",
+    "target": "目标",
+    "model": "模型",
+    "login": "登录",
+    "empty": "新建会话或选择左侧历史会话，开始渗透任务",
+    "toBottom": "↓ 回到底部",
+    "pParallel": "并行模块数",
+    "pParallelHint": "本任务同时打几个模块（1-8）。多任务并行时别太高，防 LLM 超时挂死",
+    "pModules": "候选模块数",
+    "pModulesHint": "9 个 OWASP 漏洞模块里派几个（1-9）。小目标 2-3 个就够，省时间",
+    "pTurns": "单模块最大轮次",
+    "pTurnsHint": "单个模块子 agent 的 LLM 对话轮数上限，防无限游走。快扫调低",
+    "pBudget": "单模块时间预算（秒）",
+    "pBudgetHint": "单个模块子 agent 最长运行时间，到点自动收口（全局默认 1800）。CTF 长跑调大",
+    "pModelLbl": "本任务模型",
+    "pModelHint": "指定模型排第一候选，挂了自动降级回队列其余。留空 = 全局自动",
+    "autoModel": "全局自动（跟随优先级队列）",
+    "pRetry": "死模块重试冷却（秒）",
+    "pRetryHint": "LLM 故障杀死模块后 N 秒自动整模块重试 1 次。0 = 不重试",
+    "pSkipRecon": "跳过侦察直接打",
+    "pSkipReconHint": "有档案的靶场跳过重复侦察、热启动直接打（已知靶场默认已开）",
+    "pForceAll": "全派候选模块",
+    "pForceAllHint": "不做智能剪枝，候选模块全部派发（已知靶场默认已开）",
+    "taskPh": "描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证",
+    "sendP": "发送渗透任务",
+    "liveExec": "执行过程",
+    "redbeeAgent": "RedBee 自研 agent",
+    "follow": "跟随 ✓",
+    "board": "漏洞板",
+    "curReport": "当前报告",
+    "execLog": "执行日志 ⬇",
+    "status": "状态",
+    "module": "模块",
+    "allModules": "全部模块",
+    "taskOverview": "📋 任务总览",
+    "taskOverviewTip": "跨会话查看所有任务：按状态/目标/文本过滤；点行打开对应会话并定位任务记录；↻ 一键重跑",
+    "targetPh": "http://<target-ip>  或留空（未知靶场先侦察）",
+    "modelOverrideTip": "全局模型覆盖：影响之后所有新任务；网关重启后重置",
+    "paramsBtn": "⚙ 参数",
+    "paramsBtnTip": "任务参数：本会话固定配置，后续任务沿用（点开设置）",
+    "themeTip": "切换明暗主题（跟随系统/暗/亮）",
+    "runStatusInitial": "执行中…",
+    "stopBtn": "■ 停止",
+    "stopBtnTip": "停止任务（取消子任务 + 杀沙箱容器）",
+    "steerScopeTip": "指令作用域：全部=广播给所有运行中模块；选具体模块=只注入该模块专员",
+    "sendBtn": "发送",
+    "statusFilterTip": "按状态过滤",
+    "statusAll": "全部状态",
+    "statusRunning": "运行中",
+    "statusDone": "完成",
+    "statusCancelled": "已停止",
+    "statusError": "失败",
+    "statusInterrupted": "中断",
+    "targetFilterPh": "按目标过滤…",
+    "searchFilterPh": "任务文本/ID 搜索…",
+    "thTask": "任务",
+    "thFindings": "发现",
+    "thModules": "模块",
+    "thDur": "耗时",
+    "thTime": "时间",
+    "thActions": "操作",
+    "paramDrawerTitle": "任务参数",
+    "closeTip": "关闭（Esc）",
+    "paramNote": "本会话的固定配置，后续任务沿用。留空 = 跟随全局默认（已知靶场自动套快通配方）；填了 = 仅本任务覆盖。",
+    "pgCoverage": "覆盖范围",
+    "pgDepth": "深度与时长",
+    "pgSpeed": "速度与容错",
+    "pgBehavior": "行为",
+    "phMod": "全局 9",
+    "phTurns": "全局 80",
+    "phBudget": "全局 1800",
+    "phPar": "全局 2",
+    "phRetry": "全局 60",
+    "autoModelShort": "自动",
+    "manualSuffix": " (手动)",
+    "checkBulkTitle": "勾选批量删除",
+    "delSelN": "删除选中 ({n})",
+    "sessBusyTitle": "任务运行中，不可删除",
+    "sessSubRunning": "运行中 · {d}/{t} 模块 · {f} 发现",
+    "sessSubDone": "{st} · {f} 发现",
+    "renameTip": "重命名",
+    "delTip": "删除",
+    "delFail": "删除失败: {e}",
+    "confirmQ": "确认?",
+    "bulkDelDone": "已删除 {n} 个会话",
+    "bulkDelSkip": "（跳过 {n} 个运行中）",
+    "bulkDelFail": "批量删除失败: {e}",
+    "confirmDelN": "确认删除 {n} 个?",
+    "renameFail": "重命名失败: {e}",
+    "taskCount": "{a} / {b} 个任务",
+    "noMatchTasks": "没有符合过滤条件的任务",
+    "oldTaskNoText": "(旧任务，未记录文本)",
+    "rerunBtn": "↻ 重跑",
+    "rerunTip": "用原始任务文本原样重派（目标不变；该会话运行中则拒绝）",
+    "openBtn": "打开",
+    "openTip": "打开对应会话并定位该任务的记录/执行卡",
+    "taskRunningToast": "该任务在运行中",
+    "sessBusyToast": "该会话有任务在运行，等完成或先停止",
+    "noOrigTextToast": "找不到原始任务文本（会话消息缺失）。请手动输入任务重新派发",
+    "taskRecords": "任务记录 · {n}",
+    "loadSessFail": "加载会话失败: {e}",
+    "taskRecStat": "{st} · {f} 条发现",
+    "logBtn": "⬇ 日志",
+    "findingsBtn": "📋 发现",
+    "reportBtn": "📖 报告",
+    "reportTip": "页内预览报告（modal 内可下载 .md）",
+    "reportTitle": "渗透报告 · {id}",
+    "noReportToast": "该任务无报告（无 findings），日志仍可下载",
+    "bgTaskToast": "有任务在后台执行，回到该会话可看实时进度",
+    "newSessFail": "新建会话失败: {e}",
+    "emptyHint": "输入渗透任务并发送，或选一个已知靶场直接开打：",
+    "noProfiles": "（暂无已知靶场档案；首次打新靶场会先侦察并自动建档）",
+    "busyToast": "当前有任务在跑，等完成或先停止",
+    "quickTask": "打 {name} 靶场，全面渗透，覆盖所有模块，每模块一条干净 PoC 就下一个，别过度验证",
+    "modelPriorityLbl": "模型优先级: {m}",
+    "modelSwitched": "已全局切换到 {m}（重启后重置）",
+    "modelAutoRestored": "已恢复自动路由",
+    "modelSwitchFail": "模型切换失败: {e}",
+    "loggedIn": "已登录",
+    "loggedOut": "未登录",
+    "intranetMode": "内网模式",
+    "loginOk": "登录成功",
+    "loginFail": "登录失败: {e}",
+    "noReportData": "暂无报告数据",
+    "getReportFail": "获取报告失败: {e}",
+    "execLogTip": "下载完整执行日志（派发/相位/LLM/工具/发现/失败/指令/停止）",
+    "noFindings": "暂无发现",
+    "statusChangeFail": "状态修改失败: {e}",
+    "vulnSummary": "漏洞摘要",
+    "validFindings": "{n} 条有效发现",
+    "unclassified": "未分类",
+    "moreClasses": "…另 {n} 类见下方列表",
+    "totalFindings": "共 {n} 条",
+    "noTitle": "(无标题)",
+    "manualStatusTip": "手动流转状态（立即计入摘要统计）",
+    "stRestore": "恢复",
+    "stFalsePositive": "误报",
+    "stConfirm": "确认",
+    "stRevert": "撤销",
+    "evidenceLbl": "证据",
+    "noPoc": "无 PoC/证据",
+    "findingsShort": "{n} 条",
+    "findingsN": "{n} 条发现",
+    "callsCount": "{n} 次",
+    "childAgent": "子agent",
+    "clickLocate": "{name}（点击定位模块）",
+    "emptyOutput": "(空输出)",
+    "lastTool": "最近: {t}",
+    "modulesProgress": "{d}/{t} 模块",
+    "callsTotal": "{n} 次调用",
+    "elapsedMin": "已运行 {n}min",
+    "lastActive": "上次活动 {n}s 前",
+    "llmThinking": "LLM 思考中…已等待 {n}min",
+    "llmThinkingShort": "LLM 思考中… {n}min",
+    "runningTool": "执行中: {t} …",
+    "execNow": "执行中",
+    "execNowBar": "执行中 · {parts}",
+    "steerBtn": "注入指令",
+    "steerTip": "运行中：此消息将注入正在运行的 agent（下一个 LLM 轮次生效）",
+    "steerPh": "给运行中 agent 下指令（下一轮生效），如：别打 sqli 了，专注 xss",
+    "reportDlStart": "报告已开始下载",
+    "dlMd": "⬇ 下载 .md",
+    "durLt1m": "不到 1 分钟",
+    "durMin": "{n} 分钟",
+    "durHm": "{h} 小时 {m} 分",
+    "durPrefix": "耗时 {d}",
+    "today": "今天",
+    "yesterday": "昨天",
+    "noValidFindings": "无有效发现",
+    "vulnClasses": "{n} 类漏洞（{list}）",
+    "tailDone": "自然完成",
+    "tailCancelled": "用户终止（保留部分成果）",
+    "tailInterrupted": "网关重启中断",
+    "tailRuntime": "模型失败",
+    "tailExtraction": "findings 解析失败",
+    "notifyTitle": "渗透任务{st}",
+    "toastDone": "任务{st}：{f}",
+    "taskDone": "任务完成",
+    "taskStopped": "任务已停止",
+    "taskFailed": "任务失败",
+    "dlReportBtn": "⬇ 下载报告 (.md)",
+    "dlLogBtn": "⬇ 执行日志 (.txt)",
+    "validFindingsNote": "{n} 条有效发现（详见上方执行卡的漏洞板）",
+    "stopping": "停止中…",
+    "stopIssued": "已下发停止：cancel {c} 个子任务，杀 {k} 个沙箱",
+    "stopFail": "停止失败: {e}",
+    "needTaskText": "请输入任务描述",
+    "needLogin": "请先登录",
+    "createSessFail": "创建会话失败: {e}",
+    "taskDispatched": "任务已分发后台执行…",
+    "paramMeta": " 参数:",
+    "paramDropped": "参数剔除: {w}",
+    "dispatchFail": "派发失败: {e}",
+    "needSteerText": "请输入指令内容",
+    "steerInjected": "指令已注入 {n} 个运行中 agent（{scope}，下一轮生效）",
+    "steerQueued": "指令已收到（{scope}；当前无运行中 agent，将在下一批子 agent 自动注入）",
+    "steerFail": "指令注入失败: {e}",
+    "resumedTask": "检测到进行中的任务 {id}，已恢复实时显示"
+  },
+  en: {
+    "docTitle": "RedBee · Pentest Console",
+    "brand": "RedBee Console",
+    "newSess": "+ New Session",
+    "searchSess": "Search sessions…",
+    "selectAll": "Select all",
+    "delSel": "Delete selected",
+    "loadingModels": "Loading models…",
+    "target": "Target",
+    "model": "Model",
+    "login": "Login",
+    "empty": "Start a new session or select a history one on the left, then begin a pentest.",
+    "toBottom": "↓ Bottom",
+    "pParallel": "Parallel modules",
+    "pParallelHint": "How many modules to attack in parallel (1-8). Keep it low under multitasking to avoid LLM timeouts.",
+    "pModules": "Candidate modules",
+    "pModulesHint": "How many of the 9 OWASP vulnerability modules to dispatch (1-9). 2-3 is enough for small targets.",
+    "pTurns": "Max turns per module",
+    "pTurnsHint": "LLM turn cap per module child agent; prevents endless wandering. Lower for quick scans.",
+    "pBudget": "Budget per module (s)",
+    "pBudgetHint": "Max run time per module child agent; auto-wraps at the limit (global default 1800). Raise for long CTF runs.",
+    "pModelLbl": "Model for this task",
+    "pModelHint": "Put this model first; auto-degrade to the rest of the queue on failure. Blank = global auto.",
+    "autoModel": "Auto (follow priority queue)",
+    "pRetry": "Module retry cooldown (s)",
+    "pRetryHint": "After an LLM failure kills a module, auto-retry the whole module once after N s. 0 = no retry.",
+    "pSkipRecon": "Skip recon, exploit directly",
+    "pSkipReconHint": "Ranged with a profile skip repeated recon and hot-start (on by default for known targets).",
+    "pForceAll": "Dispatch all candidate modules",
+    "pForceAllHint": "Skip smart pruning; dispatch all candidate modules (on by default for known targets).",
+    "taskPh": "Describe the pentest, e.g. hit all DVWA modules, one clean PoC each, don't over-verify",
+    "sendP": "Send pentest task",
+    "liveExec": "Execution",
+    "redbeeAgent": "RedBee agent",
+    "follow": "Follow ✓",
+    "board": "Vulnerabilities",
+    "curReport": "Current Report",
+    "execLog": "Log ⬇",
+    "status": "Status",
+    "module": "module",
+    "allModules": "All modules",
+    "taskOverview": "📋 Task Overview",
+    "taskOverviewTip": "View all tasks across sessions: filter by status/target/text; click a row to open its session; ↻ re-run",
+    "targetPh": "http://<target-ip>  or leave empty (unknown targets get recon first)",
+    "modelOverrideTip": "Global model override: affects all new tasks until gateway restart",
+    "paramsBtn": "⚙ Params",
+    "paramsBtnTip": "Task parameters: fixed config for this session, reused by later tasks (click to set)",
+    "themeTip": "Toggle theme (system / dark / light)",
+    "runStatusInitial": "Running…",
+    "stopBtn": "■ Stop",
+    "stopBtnTip": "Stop the task (cancels subtasks + kills sandbox containers)",
+    "steerScopeTip": "Steer scope: All = broadcast to every running module; pick one to inject into that module only",
+    "sendBtn": "Send",
+    "statusFilterTip": "Filter by status",
+    "statusAll": "All statuses",
+    "statusRunning": "Running",
+    "statusDone": "Done",
+    "statusCancelled": "Stopped",
+    "statusError": "Failed",
+    "statusInterrupted": "Interrupted",
+    "targetFilterPh": "Filter by target…",
+    "searchFilterPh": "Search task text / ID…",
+    "thTask": "Task",
+    "thFindings": "Findings",
+    "thModules": "Modules",
+    "thDur": "Duration",
+    "thTime": "Time",
+    "thActions": "Actions",
+    "paramDrawerTitle": "Task Parameters",
+    "closeTip": "Close (Esc)",
+    "paramNote": "Fixed configuration for this session; later tasks reuse it. Blank = follow global defaults (known targets auto-apply the fast recipe); filled = override for this task only.",
+    "pgCoverage": "Coverage",
+    "pgDepth": "Depth & Duration",
+    "pgSpeed": "Speed & Fault Tolerance",
+    "pgBehavior": "Behavior",
+    "phMod": "Global 9",
+    "phTurns": "Global 80",
+    "phBudget": "Global 1800",
+    "phPar": "Global 2",
+    "phRetry": "Global 60",
+    "autoModelShort": "Auto",
+    "manualSuffix": " (manual)",
+    "checkBulkTitle": "Check to bulk-delete",
+    "delSelN": "Delete selected ({n})",
+    "sessBusyTitle": "Task is running; cannot delete",
+    "sessSubRunning": "Running · {d}/{t} modules · {f} findings",
+    "sessSubDone": "{st} · {f} findings",
+    "renameTip": "Rename",
+    "delTip": "Delete",
+    "delFail": "Delete failed: {e}",
+    "confirmQ": "Sure?",
+    "bulkDelDone": "Deleted {n} session(s)",
+    "bulkDelSkip": "(skipped {n} running)",
+    "bulkDelFail": "Bulk delete failed: {e}",
+    "confirmDelN": "Delete {n}?",
+    "renameFail": "Rename failed: {e}",
+    "taskCount": "{a} / {b} tasks",
+    "noMatchTasks": "No tasks match the filters",
+    "oldTaskNoText": "(legacy task, text not recorded)",
+    "rerunBtn": "↻ Re-run",
+    "rerunTip": "Re-dispatch with the original task text (target unchanged; refused while the session is running)",
+    "openBtn": "Open",
+    "openTip": "Open its session and jump to this task's record",
+    "taskRunningToast": "This task is running",
+    "sessBusyToast": "A task is running in this session; wait for it or stop it first",
+    "noOrigTextToast": "Original task text not found (session messages missing). Re-enter it and dispatch again",
+    "taskRecords": "Task records · {n}",
+    "loadSessFail": "Failed to load session: {e}",
+    "taskRecStat": "{st} · {f} findings",
+    "logBtn": "⬇ Log",
+    "findingsBtn": "📋 Findings",
+    "reportBtn": "📖 Report",
+    "reportTip": "Preview the report inline (.md downloadable in the modal)",
+    "reportTitle": "Pentest Report · {id}",
+    "noReportToast": "No report for this task (no findings); the log is still downloadable",
+    "bgTaskToast": "A task is running in the background; go back to its session for live progress",
+    "newSessFail": "Failed to create session: {e}",
+    "emptyHint": "Describe a pentest and send, or pick a known range to start immediately:",
+    "noProfiles": "(no known target profiles yet; first hits on a new target recon and auto-create a profile)",
+    "busyToast": "A task is already running; wait for it or stop it first",
+    "quickTask": "Pentest the {name} range: full coverage of all modules, one clean PoC per module, don't over-verify",
+    "modelPriorityLbl": "Model priority: {m}",
+    "modelSwitched": "Global model switched to {m} (resets on restart)",
+    "modelAutoRestored": "Auto routing restored",
+    "modelSwitchFail": "Model switch failed: {e}",
+    "loggedIn": "Logged in",
+    "loggedOut": "Logged out",
+    "intranetMode": "Intranet mode",
+    "loginOk": "Login successful",
+    "loginFail": "Login failed: {e}",
+    "noReportData": "No report data yet",
+    "getReportFail": "Failed to fetch report: {e}",
+    "execLogTip": "Download the full execution log (dispatch/phases/LLM/tools/findings/failures/steer/stop)",
+    "noFindings": "No findings yet",
+    "statusChangeFail": "Status change failed: {e}",
+    "vulnSummary": "Findings Summary",
+    "validFindings": "{n} valid findings",
+    "unclassified": "Unclassified",
+    "moreClasses": "…plus {n} more classes below",
+    "totalFindings": "{n} total",
+    "noTitle": "(untitled)",
+    "manualStatusTip": "Change status manually (counted in the summary immediately)",
+    "stRestore": "Restore",
+    "stFalsePositive": "False positive",
+    "stConfirm": "Confirm",
+    "stRevert": "Revert",
+    "evidenceLbl": "Evidence",
+    "noPoc": "No PoC/evidence",
+    "findingsShort": "{n} found",
+    "findingsN": "{n} findings",
+    "callsCount": "{n} calls",
+    "childAgent": "child agent",
+    "clickLocate": "{name} (click to locate the module)",
+    "emptyOutput": "(empty output)",
+    "lastTool": "Last: {t}",
+    "modulesProgress": "{d}/{t} modules",
+    "callsTotal": "{n} tool calls",
+    "elapsedMin": "elapsed {n}min",
+    "lastActive": "active {n}s ago",
+    "llmThinking": "LLM thinking… waited {n}min",
+    "llmThinkingShort": "LLM thinking… {n}min",
+    "runningTool": "Running: {t} …",
+    "execNow": "Running",
+    "execNowBar": "Running · {parts}",
+    "steerBtn": "Inject Instruction",
+    "steerTip": "While running: this message is injected into the running agent (effective next LLM turn)",
+    "steerPh": "Steer the running agent (next turn), e.g. stop sqli, focus on xss",
+    "reportDlStart": "Report download started",
+    "dlMd": "⬇ Download .md",
+    "durLt1m": "< 1 min",
+    "durMin": "{n} min",
+    "durHm": "{h}h {m}m",
+    "durPrefix": "took {d}",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "noValidFindings": "No valid findings",
+    "vulnClasses": "{n} classes ({list})",
+    "tailDone": "completed naturally",
+    "tailCancelled": "stopped by user (partial results kept)",
+    "tailInterrupted": "interrupted by gateway restart",
+    "tailRuntime": "model failure",
+    "tailExtraction": "findings parse failure",
+    "notifyTitle": "Pentest task {st}",
+    "toastDone": "Task {st}: {f}",
+    "taskDone": "Task completed",
+    "taskStopped": "Task stopped",
+    "taskFailed": "Task failed",
+    "dlReportBtn": "⬇ Download report (.md)",
+    "dlLogBtn": "⬇ Download log (.txt)",
+    "validFindingsNote": "{n} valid findings (see the board on the execution card above)",
+    "stopping": "Stopping…",
+    "stopIssued": "Stop issued: {c} subtask(s) cancelled, {k} sandbox(es) killed",
+    "stopFail": "Stop failed: {e}",
+    "needTaskText": "Enter a task description",
+    "needLogin": "Please log in first",
+    "createSessFail": "Failed to create session: {e}",
+    "taskDispatched": "Task dispatched to the background…",
+    "paramMeta": " params:",
+    "paramDropped": "Params dropped: {w}",
+    "dispatchFail": "Dispatch failed: {e}",
+    "needSteerText": "Enter an instruction",
+    "steerInjected": "Injected into {n} running agent(s) ({scope}; effective next turn)",
+    "steerQueued": "Instruction queued ({scope}; no agent running now — it will be injected into the next batch)",
+    "steerFail": "Steer failed: {e}",
+    "resumedTask": "Resumed live view for running task {id}"
+  }
 };
 function _v(o, vars){
   let s = o[lang] || o.zh || '';           // 取当前语言，缺则回退中文
@@ -688,6 +1026,9 @@ function setLang(v){
   localStorage.setItem('redbee_lang', lang);
   applyI18n();
   document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN';
+  // 刷新动态文案（发送按钮/批量删除/会话列表/任务总览）
+  try { updateSendBtn(); updateBulkBtn(); refreshSessions();
+        if ($('#taskView') && $('#taskView').style.display!=='none') renderTaskTable(); } catch(e){}
 }
 function cycleLang(){ setLang(lang === 'zh' ? 'en' : 'zh'); }
 function tr(key, vars){ return t(key, vars); }
@@ -710,6 +1051,12 @@ function applyI18n(){
     const k = el0.getAttribute('data-i18n-ph');
     const entry = { zh: (TRANS.zh||{})[k], en: (TRANS.en||{})[k] };
     if (entry.zh || entry.en) el0.setAttribute('placeholder', _v(entry));
+  });
+  // 静态 title
+  document.querySelectorAll('[data-i18n-ti]').forEach(el0=>{
+    const k = el0.getAttribute('data-i18n-ti');
+    const entry = { zh: (TRANS.zh||{})[k], en: (TRANS.en||{})[k] };
+    if (entry.zh || entry.en) el0.setAttribute('title', _v(entry));
   });
   const lb = document.getElementById('langBtn');
   if (lb) lb.textContent = (lang === 'en') ? '中文' : 'EN';
@@ -828,7 +1175,7 @@ const selectedSids = new Set();
  }
 function updateBulkBtn(){
   const btn = $('#bulkDelBtn');
-  btn.textContent = `删除选中 (${selectedSids.size})`;
+  btn.textContent = tr('delSelN',{n:selectedSids.size});
   btn.disabled = selectedSids.size===0;
 }
 function renderSessionList(list, taskBySess={}){
@@ -842,7 +1189,7 @@ function renderSessionList(list, taskBySess={}){
     d.dataset.sid = s.id;
     const ck = document.createElement('input');
     ck.type='checkbox'; ck.className='ck'; ck.checked=sel;
-    if (runningTasks[s.id]){ ck.disabled=true; ck.title='任务运行中，不可删除'; } else { ck.title='勾选批量删除'; }
+    if (runningTasks[s.id]){ ck.disabled=true; ck.title=tr('sessBusyTitle'); } else { ck.title=tr('checkBulkTitle'); }
     ck.onclick = e=>{ e.stopPropagation(); if(ck.checked) selectedSids.add(s.id); else selectedSids.delete(s.id);
       d.classList.toggle('selected', ck.checked); updateBulkBtn(); syncSelectAll(); };
     d.appendChild(ck);
@@ -857,12 +1204,12 @@ function renderSessionList(list, taskBySess={}){
     if (tinfo){
       if (tinfo.status === 'running'){
         const tot = tinfo.modules_total||0, dn = tinfo.modules_done||0;
-        sub = `运行中 · ${dn}/${tot} 模块 · ${tinfo.findings||0} 发现`;
+        sub = tr('sessSubRunning',{d:dn,t:tot,f:tinfo.findings||0});
         subCls = 'm taskrun';
         if (tot) pbarPct = Math.min(96, Math.round(dn/tot*100));
       } else {
-        const smap = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
-        sub = `${smap[tinfo.status]||tinfo.status} · ${tinfo.findings||0} 发现`;
+        const smap = {done:tr('statusDone'), cancelled:tr('statusCancelled'), runtime_error:tr('statusError'), extraction_error:tr('statusError'), interrupted:tr('statusInterrupted')};
+        sub = tr('sessSubDone',{st:smap[tinfo.status]||tinfo.status, f:tinfo.findings||0});
         subCls = 'm taskdone ' + ((tinfo.status==='done'||tinfo.status==='cancelled') ? 'ok' : 'bad');
       }
     } else {
@@ -872,10 +1219,10 @@ function renderSessionList(list, taskBySess={}){
     d.appendChild(info);
     if (pbarPct!=null){ const pb = el('div','pbar'); pb.style.width = pbarPct+'%'; d.appendChild(pb); }
     const acts = el('div','acts');
-    const rn = el('button','ibtn', '✎'); rn.title='重命名';
+    const rn = el('button','ibtn', '✎'); rn.title=tr('renameTip');
     rn.onclick = e=>{ e.stopPropagation(); startRename(d, s); };
     const del = el('button','ibtn del', '×');
-    if (runningTasks[s.id]){ del.disabled=true; del.title='任务运行中，不可删除'; } else { del.title='删除'; }
+    if (runningTasks[s.id]){ del.disabled=true; del.title=tr('sessBusyTitle'); } else { del.title=tr('delTip'); }
     del.onclick = e=>{
       e.stopPropagation();
       if (del.classList.contains('armed')){
@@ -884,9 +1231,9 @@ function renderSessionList(list, taskBySess={}){
           selectedSids.delete(s.id);
           delete runningTasks[s.id];
           refreshSessions();
-        }).catch(err=>toast('删除失败: '+err.message));
+        }).catch(err=>toast(tr('delFail',{e:err.message})));
       } else {
-        del.classList.add('armed'); del.textContent='确认?';
+        del.classList.add('armed'); del.textContent=tr('confirmQ');
         setTimeout(()=>{ del.classList.remove('armed'); del.textContent='×'; }, 2600);
       }
     };
@@ -922,12 +1269,12 @@ $('#bulkDelBtn').onclick = function(){
       if (curSid && selectedSids.has(curSid)){ curSid=null; $('#msgs').innerHTML=''; clearStream(); }
       selectedSids.forEach(id=>delete runningTasks[id]);
       selectedSids.clear();
-      toast(`已删除 ${r.deleted} 个会话` + (r.skipped ? `（跳过 ${r.skipped} 个运行中）` : ''));
+      toast(tr('bulkDelDone',{n:r.deleted}) + (r.skipped ? tr('bulkDelSkip',{n:r.skipped}) : ''));
       refreshSessions();
-    }).catch(err=>{ toast('批量删除失败: '+err.message); btn.classList.remove('armed'); });
+    }).catch(err=>{ toast(tr('bulkDelFail',{e:err.message})); btn.classList.remove('armed'); });
   } else {
     btn.classList.add('armed');
-    btn.textContent = `确认删除 ${selectedSids.size} 个?`;
+    btn.textContent = tr('confirmDelN',{n:selectedSids.size});
     setTimeout(()=>{ if(btn.isConnected){ btn.classList.remove('armed'); updateBulkBtn(); } }, 3000);
   }
 };
@@ -944,7 +1291,7 @@ function startRename(sessEl, s){
     const v=input.value.trim();
     if (v && v!==s.title){
       try { await api(`/api/sessions/${s.id}`,{method:'PATCH',json:{title:v}}); }
-      catch(e){ toast('重命名失败: '+e.message); }
+      catch(e){ toast(tr('renameFail',{e:e.message})); }
     }
     refreshSessions();
   };
@@ -987,47 +1334,47 @@ async function renderTaskTable(){
     (!st || t.status===st) &&
     (!tg || String(t.target||'').toLowerCase().includes(tg) || String(t.target_id||'').toLowerCase().includes(tg)) &&
     (!kw || String(t.task_text||'').toLowerCase().includes(kw) || t.task_id.includes(kw)));
-  document.querySelector('.tv-count').textContent = `${list.length} / ${(tasks||[]).length} 个任务`;
+  document.querySelector('.tv-count').textContent = tr('taskCount',{a:list.length,b:(tasks||[]).length});
   body.innerHTML='';
   if (!list.length){
-    const tr = el('tr');
-    const td = el('td','muted','没有符合过滤条件的任务');
+    const rowEl = el('tr');
+    const td = el('td','muted',tr('noMatchTasks'));
     td.colSpan=8; td.style.textAlign='center'; td.style.padding='24px';
-    tr.appendChild(td); body.appendChild(tr); return;
+    rowEl.appendChild(td); body.appendChild(rowEl); return;
   }
   list.forEach(t=>{
-    const tr = el('tr');
-    tr.style.cursor='pointer';
+    const rowEl = el('tr');
+    rowEl.style.cursor='pointer';
     // 任务：ID + 任务文本（截断，hover 全文）
     const td1 = el('td');
     td1.appendChild(el('span','tv-tid', t.task_id.slice(0,10)));
     if (t.task_text)
       td1.appendChild(Object.assign(el('span','tv-tt', t.task_text.length>64 ? t.task_text.slice(0,64)+'…' : t.task_text), {title:t.task_text}));
-    else td1.appendChild(el('span','tv-tt muted','(旧任务，未记录文本)'));
-    tr.appendChild(td1);
+    else td1.appendChild(el('span','tv-tt muted',tr('oldTaskNoText')));
+    rowEl.appendChild(td1);
     // 状态
     const stCls = t.status==='runtime_error'||t.status==='extraction_error'||t.status==='interrupted' ? 'error' : t.status;
     const tdSt = el('td');
-    tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP[t.status]||t.status));
-    tr.appendChild(tdSt);
+    tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP()[t.status]||t.status));
+    rowEl.appendChild(tdSt);
     // 目标 / 发现 / 模块
-    tr.appendChild(el('td','', t.target || t.target_id || '-'));
-    tr.appendChild(el('td','', String(t.findings||0)));
-    tr.appendChild(el('td','', (t.modules_total||0) ? `${t.modules_done||0}/${t.modules_total}` : '-'));
-    tr.appendChild(el('td','', fmtDur(t.created_at, t.updated_at) || '-'));
-    tr.appendChild(el('td','muted', new Date(t.created_at).toLocaleString()));
+    rowEl.appendChild(el('td','', t.target || t.target_id || '-'));
+    rowEl.appendChild(el('td','', String(t.findings||0)));
+    rowEl.appendChild(el('td','', (t.modules_total||0) ? `${t.modules_done||0}/${t.modules_total}` : '-'));
+    rowEl.appendChild(el('td','', fmtDur(t.created_at, t.updated_at) || '-'));
+    rowEl.appendChild(el('td','muted', new Date(t.created_at).toLocaleString()));
     // 操作：重跑 / 打开
     const acts = el('div','tv-acts');
-    const rr = el('button','tbtn','↻ 重跑');
-    rr.title='用原始任务文本原样重派（目标不变；该会话运行中则拒绝）';
+    const rr = el('button','tbtn',tr('rerunBtn'));
+    rr.title=tr('rerunTip');
     rr.onclick = e=>{ e.stopPropagation(); rerunTask(t); };
-    const op = el('button','tbtn','打开');
-    op.title='打开对应会话并定位该任务的记录/执行卡';
+    const op = el('button','tbtn',tr('openBtn'));
+    op.title=tr('openTip');
     op.onclick = e=>{ e.stopPropagation(); openTaskInSession(t); };
     acts.append(rr, op);
-    const tdA = el('td'); tdA.appendChild(acts); tr.appendChild(tdA);
-    tr.onclick = ()=> openTaskInSession(t);
-    body.appendChild(tr);
+    const tdA = el('td'); tdA.appendChild(acts); rowEl.appendChild(tdA);
+    rowEl.onclick = ()=> openTaskInSession(t);
+    body.appendChild(rowEl);
   });
 }
 
@@ -1047,15 +1394,15 @@ async function openTaskInSession(t){
 
 /* 重跑：原任务文本原样重派（目标不变）。task_text 缺失的旧任务 → 从会话派发消息解析兜底 */
 async function rerunTask(t){
-  if (t.status==='running'){ toast('该任务在运行中'); return; }
-  if (runningTasks[t.session_id]){ toast('该会话有任务在运行，等完成或先停止'); return; }
+  if (t.status==='running'){ toast(tr('taskRunningToast')); return; }
+  if (runningTasks[t.session_id]){ toast(tr('sessBusyToast')); return; }
   let text = String(t.task_text||'');
   if (!text && t.session_id){
     try { text = extractTaskText(await api(`/api/sessions/${t.session_id}/messages`), t.created_at); } catch(e){}
   }
-  if (!text){ toast('找不到原始任务文本（会话消息缺失）。请手动输入任务重新派发'); return; }
+  if (!text){ toast(tr('noOrigTextToast')); return; }
   await openTaskInSession(t);
-  if (runningTasks[t.session_id]){ toast('该会话有任务在运行，等完成或先停止'); return; }
+  if (runningTasks[t.session_id]){ toast(tr('sessBusyToast')); return; }
   $('#taskInput').value = text;
   if (t.target) $('#targetInput').value = t.target;
   await sendTask();
@@ -1124,13 +1471,13 @@ function extractTaskText(messages, taskCreatedAt){
         }));
         const box = el('div','msg assistant report-msg');
         const h = el('div','rep-head');
-        h.appendChild(el('span','status-pill st-done', `任务记录 · ${unmatched.length}`));
+        h.appendChild(el('span','status-pill st-done', tr('taskRecords',{n:unmatched.length})));
         box.appendChild(h);
         unmatched.forEach((t,i)=>box.appendChild(recordRow(t, boards[i])));
         msgs.appendChild(box);
       }
       scrollBottom(true);
-    } catch(e){ msgs.appendChild(renderMsg('sys', '加载会话失败: '+e.message)); }
+    } catch(e){ msgs.appendChild(renderMsg('sys', tr('loadSessFail',{e:e.message}))); }
     const rt = runningTasks[sid];
     if (rt){
       if (rt !== curTaskId){
@@ -1156,20 +1503,20 @@ function extractTaskText(messages, taskCreatedAt){
    } else {
      $('#targetInput').value = '';
      $('#targetInput').disabled = false;
-     $('#targetInput').placeholder = 'http://<target-ip>  或留空（未知靶场先侦察）';
+     $('#targetInput').placeholder = tr('targetPh');
    }
  }
 
 /* 任务记录行：内联挂每条任务消息下（openSession）/ 末尾兜底块复用。
    报告/日志从会话内随时可取（刷新/重开不丢） */
-const TASK_SMAP = {done:'完成', cancelled:'已停止', runtime_error:'失败', extraction_error:'失败', interrupted:'中断'};
+function TASK_SMAP(){ return {done:tr('statusDone'), cancelled:tr('statusCancelled'), runtime_error:tr('statusError'), extraction_error:tr('statusError'), interrupted:tr('statusInterrupted')}; }
 /* 任务记录行（+ 可展开的 findings 板 + 报告预览/下载/日志）
    返回 wrapper div：行 + 隐藏展开板，调用方直接 append 即可 */
 function recordRow(t, findings){
   const row = el('div','artifact-row');
   row.dataset.task = t.task_id;   // 任务总览跳转定位用
   row.appendChild(el('span','artifact-id', t.task_id));
-  row.appendChild(el('span','artifact-stat', `${TASK_SMAP[t.status]||t.status} · ${t.findings||0} 条发现`));
+  row.appendChild(el('span','artifact-stat', tr('taskRecStat',{st:(TASK_SMAP()[t.status]||t.status), f:(t.findings||0)})));
   const sumParts = [fmtWhenRange(t.created_at, t.updated_at),
                     findings ? findingsSummary(findings) : ''].filter(Boolean);
   // 失败/中断任务附上原因摘要（如"目标不可达...""网关重启中断"）
@@ -1177,16 +1524,16 @@ function recordRow(t, findings){
     sumParts.push(t.runtime_error_summary.length > 90 ? t.runtime_error_summary.slice(0,90)+'…' : t.runtime_error_summary);
   if (sumParts.length) row.appendChild(el('div','artifact-sum', sumParts.join(' · ')));
   const rb = reportBtn(t);
-  const lb = el('button','tbtn','⬇ 日志');
+  const lb = el('button','tbtn',tr('logBtn'));
   lb.onclick = ()=> location.href = `/api/task/${t.task_id}/log/download`;
-  const rr = el('button','tbtn','↻ 重跑');
-  rr.title='用原始任务文本原样重派（目标不变；该会话运行中则拒绝）';
+  const rr = el('button','tbtn',tr('rerunBtn'));
+  rr.title=tr('rerunTip');
   rr.onclick = ()=> rerunTask(t);
   // 📋 查看发现：懒建展开板（复用 buildBoardList，行内可手动 误报/确认/恢复）
   if (findings && findings.length){
     const detail = el('div','record-detail');
     detail.style.display='none';
-    const vb = el('button','tbtn','📋 发现');
+    const vb = el('button','tbtn',tr('findingsBtn'));
     vb.onclick = ()=>{
       if (!detail.dataset.built){
         detail.appendChild(buildBoardList(findings, {onStatus:(f,s)=>markFinding(t.task_id, f.id, s, detail)}));
@@ -1206,15 +1553,15 @@ function recordRow(t, findings){
 }
 /* 报告按钮：页内预览（modal 内可下载）；无报告时提示 */
 function reportBtn(t){
-  const rb = el('button','tbtn','📖 报告');
-  rb.title = '页内预览报告（modal 内可下载 .md）';
+  const rb = el('button','tbtn',tr('reportBtn'));
+  rb.title = tr('reportTip');
   rb.onclick = async ()=>{
     rb.disabled = true;
     try {
       const rep = await api(`/api/task/${t.task_id}/report`);
-      if (rep && rep.report_md) openReportModal(t.task_id, '渗透报告 · '+t.task_id, rep.report_md);
-      else toast('该任务无报告（无 findings），日志仍可下载');
-    } catch(e){ toast('该任务无报告（无 findings），日志仍可下载'); }
+      if (rep && rep.report_md) openReportModal(t.task_id, tr('reportTitle',{id:t.task_id}), rep.report_md);
+      else toast(tr('noReportToast'));
+    } catch(e){ toast(tr('noReportToast')); }
     finally { rb.disabled = false; }
   };
   return rb;
@@ -1225,15 +1572,15 @@ function reportBtn(t){
     const hadRunning = !!curTaskId;
     clearStream();   // 隐藏状态栏；后端任务继续跑，回原会话自动重连
    if (hadRunning){
-     toast('有任务在后台执行，回到该会话可看实时进度');
+     toast(tr('bgTaskToast'));
    }
    $('#targetInput').value=''; curTargetId='';
    $('#targetInput').disabled = false;
-   $('#targetInput').placeholder = 'http://<target-ip>  或留空（未知靶场先侦察）';
+   $('#targetInput').placeholder = tr('targetPh');
    try {
     const d = await api('/api/sessions',{method:'POST',json:{}});
     curSid = d.id;
-  } catch(e){ toast('新建会话失败: '+e.message); return; }
+  } catch(e){ toast(tr('newSessFail',{e:e.message})); return; }
   applyParamsToInputs({});          // 新会话默认无固定参数
   $('#msgs').innerHTML='';
   $('#msgs').appendChild(emptyState());
@@ -1244,7 +1591,7 @@ function reportBtn(t){
 function emptyState(){
   const box = el('div','empty');
   box.id = 'empty';
-  box.appendChild(el('div','empty-title','输入渗透任务并发送，或选一个已知靶场直接开打：'));
+  box.appendChild(el('div','empty-title',tr('emptyHint')));
   const chips = el('div','chips');
   if (knownTargets.length){
     knownTargets.forEach(t=>{
@@ -1254,16 +1601,16 @@ function emptyState(){
       chips.appendChild(c);
     });
   } else {
-    chips.appendChild(el('span','muted','（暂无已知靶场档案；首次打新靶场会先侦察并自动建档）'));
+    chips.appendChild(el('span','muted',tr('noProfiles')));
   }
   box.appendChild(chips);
   return box;
 }
 async function quickStart(t){
-  if (curTaskId){ toast('当前有任务在跑，等完成或先停止'); return; }
+  if (curTaskId){ toast(tr('busyToast')); return; }
   $('#targetInput').value = t.addr || '';
   curTargetId = t.id;
-  $('#taskInput').value = `打 ${t.name} 靶场，全面渗透，覆盖所有模块，每模块一条干净 PoC 就下一个，别过度验证`;
+  $('#taskInput').value = tr('quickTask',{name:t.name});
   await sendTask();
 }
 
@@ -1277,21 +1624,21 @@ async function refreshModels(){
   list.forEach(mm=>{ const o=el('option','',mm); o.value=mm; if(mm===(m.override||''))o.selected=true; sel.appendChild(o); });
   /* 高级参数里的"本任务模型"下拉：同队列，留空=全局自动 */
   const pm=$('#pModel'); if(pm){ const _keep=pm.value; pm.innerHTML='';
-    const _o0=el('option','','全局自动（跟随优先级队列）'); _o0.value=''; pm.appendChild(_o0);
+    const _o0=el('option','',tr('autoModel')); _o0.value=''; pm.appendChild(_o0);
     list.forEach(mm=>{ const o=el('option','',mm); o.value=mm; pm.appendChild(o); });
     pm.value=_keep||''; }
-  if (m.override && list.indexOf(m.override)<0){ const o=el('option','',m.override+' (手动)'); o.value=m.override; o.selected=true; sel.appendChild(o); }
-  const auto=el('option','','自动'); auto.value=''; if(!m.override)auto.selected=true; sel.prepend(auto);
-  $('#modelFooter').textContent = '模型优先级: ' + (m.effective_priority||m.default_priority||[]).join(' · ');
+  if (m.override && list.indexOf(m.override)<0){ const o=el('option','',m.override+tr('manualSuffix')); o.value=m.override; o.selected=true; sel.appendChild(o); }
+  const auto=el('option','',tr('autoModelShort')); auto.value=''; if(!m.override)auto.selected=true; sel.prepend(auto);
+  $('#modelFooter').textContent = tr('modelPriorityLbl',{m:(m.effective_priority||m.default_priority||[]).join(' · ')});
   updateAuthUI();
 }
 $('#modelSelect').addEventListener('change', async e=>{
   const v = e.target.value;
   try {
     const r = await api('/api/models/override',{method:'POST',json:{model:v}});
-    $('#modelFooter').textContent = '模型优先级: ' + (r.effective_priority||[]).join(' · ');
-    toast(v ? '已全局切换到 '+v+'（重启后重置）' : '已恢复自动路由');
-  } catch(err){ toast('模型切换失败: '+err.message); refreshModels(); }
+    $('#modelFooter').textContent = tr('modelPriorityLbl',{m:(r.effective_priority||[]).join(' · ')});
+    toast(v ? tr('modelSwitched',{m:v}) : tr('modelAutoRestored'));
+  } catch(err){ toast(tr('modelSwitchFail',{e:err.message})); refreshModels(); }
 });
 
 async function refreshTargets(){
@@ -1318,14 +1665,14 @@ $('#targetInput').addEventListener('change', ()=>{
 function updateAuthUI(){
   $('#loginBtn').style.display = authEnabled?'':'none';
   $('#tokenInput').style.display = authEnabled?'':'none';
-  $('#userBadge').textContent = authEnabled ? (authed?'已登录':'未登录') : '内网模式';
+  $('#userBadge').textContent = authEnabled ? (authed?tr('loggedIn'):tr('loggedOut')) : tr('intranetMode');
 }
 async function doLogin(){
   try {
     const d = await api('/api/login', {method:'POST', json:{token:$('#tokenInput').value}});
     sessionToken = d.session_token; localStorage.setItem('pimeta_token', sessionToken);
-    authed = true; updateAuthUI(); toast('登录成功');
-  } catch(e){ authed=false; toast('登录失败: '+e.message); }
+    authed = true; updateAuthUI(); toast(tr('loginOk'));
+  } catch(e){ authed=false; toast(tr('loginFail',{e:e.message})); }
 }
 $('#loginBtn').onclick = doLogin;
 
@@ -1340,16 +1687,16 @@ function createLiveCard(taskId, afterEl){
   card.dataset.task = taskId;   // 任务总览跳转定位用
   const head = el('div','lc-head');
   const dot = el('span','lc-dot');
-  const statusEl = el('span','lc-status st-running','运行中');
-  head.append(dot, el('span','lc-title','执行过程'),
-               el('span','lc-agent','RedBee 自研 agent'), statusEl);
+  const statusEl = el('span','lc-status st-running',tr('statusRunning'));
+  head.append(dot, el('span','lc-title',tr('liveExec')),
+               el('span','lc-agent',tr('redbeeAgent')), statusEl);
   const stepper = el('div','lc-stepper');
   PHASES.forEach((p,i)=>{
     if (i>0) stepper.appendChild(el('span','ph-sep','›'));
     stepper.appendChild(el('span','ph', p));
   });
   const meta = el('span','lc-meta','');
-  const followBtn = el('button','tbtn lc-follow','跟随 ✓');
+  const followBtn = el('button','tbtn lc-follow',tr('follow'));
   followBtn.onclick = ()=>{ setFollow(!follow); if (follow) scrollBottom(true); };
   head.append(stepper, meta, followBtn);
   // 模块地图（六色状态：wait/run/ok/none/fail/skip；结束后定格=漏洞地图）
@@ -1357,28 +1704,28 @@ function createLiveCard(taskId, afterEl){
   const modsEl = el('div','lc-modules');
   // 漏洞板区（实时轮询 /board；结束后保留 = 最终成果板；点行展开 PoC/证据）
   const boardHead = el('div','lb-head');
-  boardHead.appendChild(el('span','lb-title','🛡 漏洞板'));
+  boardHead.appendChild(el('span','lb-title','🛡 '+tr('board')));
   const boardCount = el('span','lb-count','');
   boardHead.appendChild(boardCount);
-  const boardRepBtn = el('button','tbtn lb-rep','当前报告');
-  boardRepBtn.title = '页内预览当前报告（modal 内可下载 .md）';
+  const boardRepBtn = el('button','tbtn lb-rep',tr('curReport'));
+  boardRepBtn.title = tr('reportTip');
   boardRepBtn.style.display='none';
   boardRepBtn.onclick = async ()=>{
     boardRepBtn.disabled = true;
     try {
       const rep = await api(`/api/task/${taskId}/report`);
-      if (rep && rep.report_md) openReportModal(taskId, '渗透报告 · '+taskId, rep.report_md);
-      else toast('暂无报告数据');
-    } catch(e){ toast('获取报告失败: '+e.message); }
+      if (rep && rep.report_md) openReportModal(taskId, tr('reportTitle',{id:taskId}), rep.report_md);
+      else toast(tr('noReportData'));
+    } catch(e){ toast(tr('getReportFail',{e:e.message})); }
     finally { boardRepBtn.disabled = false; }
   };
   boardHead.appendChild(boardRepBtn);
-  const boardLogBtn = el('button','tbtn lb-log','执行日志 ⬇');
-  boardLogBtn.title = '下载完整执行日志（派发/相位/LLM/工具/发现/失败/指令/停止）';
+  const boardLogBtn = el('button','tbtn lb-log',tr('execLog'));
+  boardLogBtn.title = tr('execLogTip');
   boardLogBtn.onclick = ()=>{ location.href = `/api/task/${taskId}/log/download`; };
   boardHead.appendChild(boardLogBtn);
   const boardEl = el('div','lb-list');
-  boardEl.appendChild(el('div','lb-empty','暂无发现'));
+  boardEl.appendChild(el('div','lb-empty',tr('noFindings')));
   const boardWrap = el('div','lc-board');
   boardWrap.append(boardHead, boardEl);
   card.append(head, mapEl, modsEl, boardWrap);
@@ -1432,7 +1779,7 @@ async function markFinding(taskId, fid, status, intoEl){
       renderBoard(liveState, nf);
     }
     return true;
-  } catch(e){ toast('状态修改失败: '+e.message); return false; }
+  } catch(e){ toast(tr('statusChangeFail',{e:e.message})); return false; }
 }
 /* 板内容（摘要+分布条+行列表）：纯函数，live 执行卡与历史任务记录展开共用。
    opts.onStatus(finding, newStatus) → 行内手动状态按钮回调 */
@@ -1447,17 +1794,17 @@ function buildBoardList(findings, opts){
   if (valid2.length){
     const DG_SEV_COLOR = {critical:'#ff5c5c',high:'#f0883e',medium:'var(--yellow)',low:'#79c0ff',info:'var(--map-dot)'};
     const dg = el('div','lb-digest');
-    dg.appendChild(el('div','dg-head','漏洞摘要'));
+    dg.appendChild(el('div','dg-head',tr('vulnSummary')));
     const sevTot = {critical:0, high:0, medium:0, low:0, info:0};
     valid2.forEach(f=>{ const s=String(f.severity||'info').toLowerCase(); if (sevTot[s]!=null) sevTot[s]++; });
     const sevParts = ['critical','high','medium','low','info'].filter(k=>sevTot[k]).map(k=>k+' '+sevTot[k]);
-    let tot = valid2.length+' 条有效发现';
+    let tot = tr('validFindings',{n:valid2.length});
     if (sevParts.length) tot += '（'+sevParts.join(' / ')+'）';
     const confirmed = valid2.filter(f=>String(f.status||'').toLowerCase()==='confirmed').length;
     if (confirmed) tot += ' · confirmed '+confirmed;
     dg.appendChild(el('div','dg-total', tot));
     const groups = {};
-    valid2.forEach(f=>{ const k=f.vuln_class||'未分类'; (groups[k]=groups[k]||[]).push(f); });
+    valid2.forEach(f=>{ const k=f.vuln_class||tr('unclassified'); (groups[k]=groups[k]||[]).push(f); });
     const glist = Object.entries(groups).sort((a,b)=>{
       const sa=Math.min(...a[1].map(f=>SEV_RANK[f.severity]??9)), sb=Math.min(...b[1].map(f=>SEV_RANK[f.severity]??9));
       return sa-sb || b[1].length-a[1].length;
@@ -1473,7 +1820,7 @@ function buildBoardList(findings, opts){
       line.appendChild(el('span','dg-titles', titles));
       dg.appendChild(line);
     });
-    if (glist.length>MAXG) dg.appendChild(el('div','dg-more','…另 '+ (glist.length-MAXG) +' 类见下方列表'));
+    if (glist.length>MAXG) dg.appendChild(el('div','dg-more',tr('moreClasses',{n:(glist.length-MAXG)})));
     list.appendChild(dg);
   }
   if (valid2.length){
@@ -1490,16 +1837,16 @@ function buildBoardList(findings, opts){
     ['critical','high','medium','low','info'].forEach(k=>{
       if (sev[k]){ const s=el('span','',  k+' '+sev[k]); s.prepend(Object.assign(el('i',''),{style:'background:'+({critical:'#ff5c5c',high:'#f0883e',medium:'var(--yellow)',low:'#79c0ff',info:'var(--map-dot)'})[k]||'var(--map-dot)'})); leg.appendChild(s); }
     });
-    leg.appendChild(el('span','', '共 '+total+' 条'));
+    leg.appendChild(el('span','', tr('totalFindings',{n:total})));
     bar.appendChild(leg);
     list.appendChild(bar);
   }
-  if (!sorted.length){ list.appendChild(el('div','lb-empty','暂无发现')); }
+  if (!sorted.length){ list.appendChild(el('div','lb-empty',tr('noFindings'))); }
   sorted.forEach(f=>{
     const st0 = String(f.status||'found').toLowerCase();
     const row = el('div','lb-row'+(st0==='false_positive'?' lb-fp':''));
     row.append(el('span','sev sev-'+(f.severity||'info'), f.severity||'info'));
-    row.appendChild(el('span','f-title', f.title||'(无标题)'));
+    row.appendChild(el('span','f-title', f.title||tr('noTitle')));
     if (f.location) row.appendChild(el('span','lb-loc', f.location));
     row.appendChild(el('span','f-status st-'+st0, st0));
     // 手动状态流转（误报不再计入摘要；确认/恢复可回退）
@@ -1507,22 +1854,22 @@ function buildBoardList(findings, opts){
       const act = el('span','f-acts');
       const mk = (label, status)=>{
         const b2 = el('button','f-act', label);
-        b2.title = '手动流转状态（立即计入摘要统计）';
+        b2.title = tr('manualStatusTip');
         b2.onclick = ev=>{ ev.stopPropagation(); b2.disabled = true;
           opts.onStatus(f, status).then(ok=>{ if(!ok) b2.disabled = false; }); };
         return b2;
       };
-      if (st0==='false_positive') act.appendChild(mk('恢复','found'));
-      else act.appendChild(mk('误报','false_positive'));
-      if (st0==='found') act.appendChild(mk('确认','confirmed'));
-      else if (st0==='confirmed') act.appendChild(mk('撤销','found'));
+      if (st0==='false_positive') act.appendChild(mk(tr('stRestore'),'found'));
+      else act.appendChild(mk(tr('stFalsePositive'),'false_positive'));
+      if (st0==='found') act.appendChild(mk(tr('stConfirm'),'confirmed'));
+      else if (st0==='confirmed') act.appendChild(mk(tr('stRevert'),'found'));
       row.appendChild(act);
     }
     const det = el('div','lb-detail');
     det.style.display='none';
     if (f.poc){ det.appendChild(el('h5','PoC')); det.appendChild(Object.assign(el('pre'),{textContent:f.poc})); }
-    if (f.evidence){ det.appendChild(el('h5','证据')); det.appendChild(Object.assign(el('pre'),{textContent:f.evidence})); }
-    if (!f.poc && !f.evidence) det.appendChild(el('span','lb-empty','无 PoC/证据'));
+    if (f.evidence){ det.appendChild(el('h5',tr('evidenceLbl'))); det.appendChild(Object.assign(el('pre'),{textContent:f.evidence})); }
+    if (!f.poc && !f.evidence) det.appendChild(el('span','lb-empty',tr('noPoc')));
     row.onclick = ()=>{ det.style.display = det.style.display==='none'?'block':'none'; };
     list.appendChild(row); list.appendChild(det);
   });
@@ -1530,7 +1877,7 @@ function buildBoardList(findings, opts){
 }
 function renderBoard(ls, findings){
   const valid = findings.filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
-  ls.boardCount.textContent = valid.length ? valid.length+' 条' : '';
+  ls.boardCount.textContent = valid.length ? tr('findingsShort',{n:valid.length}) : '';
   ls.boardRepBtn.style.display = findings.length ? '' : 'none';
   const list = buildBoardList(findings, {onStatus:(f,s)=>markFinding(ls.taskId, f.id, s)});
   ls.boardEl.replaceWith(list);
@@ -1557,9 +1904,9 @@ function ensureMod(name){
   const wrap = el('div','lc-mod');
   const h = el('div','lc-mod-head');
   const dot = el('span','mod-dot');
-  const stateEl = el('span','mod-state','运行中');
-  const callsEl = el('span','mod-calls','0 次');
-  h.append(dot, el('span','mod-name', name), el('span','mod-agent','子agent'),
+  const stateEl = el('span','mod-state',tr('statusRunning'));
+  const callsEl = el('span','mod-calls',tr('callsCount',{n:0}));
+  h.append(dot, el('span','mod-name', name), el('span','mod-agent',tr('childAgent')),
            stateEl, callsEl, el('span','chev','▾'));
   const body = el('div','lc-mod-body');
   wrap.append(h, body);
@@ -1593,7 +1940,7 @@ function mpSet(name, state, extra, tip){
   c.textContent = '';
   c.appendChild(el('i'));
   c.appendChild(document.createTextNode(extra ? name + ' ' + extra : name));
-  c.title = tip || (name + '（点击定位模块）');
+  c.title = tip || tr('clickLocate',{name:name});
 }
 /* 卡片创建后拉任务元数据，把全部候选模块预置为"待启动"（刷新恢复/派发竞态兜底） */
 async function prefillMap(taskId){
@@ -1611,7 +1958,7 @@ function addToolResult(s){
   const entry = el('div','lc-entry');
   entry.append(el('span','e-time', nowStr()), el('span','e-tool', s.tool||'?'));
   const first = String(s.result||'').split('\n')[0].trim().slice(0,150);
-  entry.appendChild(el('span','e-brief', first || '(空输出)'));
+  entry.appendChild(el('span','e-brief', first || tr('emptyOutput')));
   const full = el('pre','e-full');
   full.textContent = String(s.result||'');
   full.style.display='none';
@@ -1619,8 +1966,8 @@ function addToolResult(s){
   m.body.appendChild(entry);
   m.body.appendChild(full);
   m.entries++; ls.calls++;
-  m.callsEl.textContent = m.entries+' 次';
-  m.stateEl.textContent = '最近: '+(s.tool||'');
+  m.callsEl.textContent = tr('callsCount',{n:m.entries});
+  m.stateEl.textContent = tr('lastTool',{t:(s.tool||'')});
   while (m.body.children.length > 400){ m.body.removeChild(m.body.firstChild); m.body.removeChild(m.body.firstChild); }
   updCardMeta();
   scrollBottom();
@@ -1631,8 +1978,8 @@ function updCardMeta(){
   const seen = Object.keys(ls.seenMods).length;
   const done = Object.keys(ls.doneMods).length;
   let t = '';
-  if (seen) t += done + '/' + seen + ' 模块';
-  if (ls.calls) t += (t ? ' · ' : '') + ls.calls + ' 次调用';
+  if (seen) t += tr('modulesProgress',{d:done,t:seen});
+  if (ls.calls) t += (t ? ' · ' : '') + tr('callsTotal',{n:ls.calls});
   ls.meta.textContent = t;
 }
 
@@ -1645,15 +1992,15 @@ function updLiveHeartbeat(){
   const seen = Object.keys(ls.seenMods).length;
   const done = Object.keys(ls.doneMods).length;
   const parts = [];
-  if (seen) parts.push(done + '/' + seen + ' 模块');
-  if (ls.calls) parts.push(ls.calls + ' 次调用');
+  if (seen) parts.push(tr('modulesProgress',{d:done,t:seen}));
+  if (ls.calls) parts.push(tr('callsTotal',{n:ls.calls}));
   if (ls.phase) parts.push(ls.phase);
   const mins = ls.start ? Math.floor((now - ls.start)/60000) : 0;
-  if (mins >= 1) parts.push('已运行 ' + mins + 'min');
-  else if (seen || ls.calls) parts.push('运行中');
+  if (mins >= 1) parts.push(tr('elapsedMin',{n:mins}));
+  else if (seen || ls.calls) parts.push(tr('statusRunning'));
   const idle = Math.max(0, Math.round((now - ls.lastActivity)/1000));
-  if (idle < 90) parts.push('上次活动 ' + idle + 's 前');
-  else parts.push('LLM 思考中…已等待 ' + Math.floor(idle/60) + 'min');
+  if (idle < 90) parts.push(tr('lastActive',{n:idle}));
+  else parts.push(tr('llmThinking',{n:Math.floor(idle/60)}));
   ls.meta.textContent = parts.join(' · ');
 }
 
@@ -1677,23 +2024,23 @@ function onLive(d){
     } else if (lt==='module_done'){
       const m = ensureMod(modName);
       m.dot.className='mod-dot done';
-      m.stateEl.textContent = (s.last_message||'完成').replace(/^\[[^\]]*\]\s*/,'');
+      m.stateEl.textContent = (s.last_message||tr('statusDone')).replace(/^\[[^\]]*\]\s*/,'');
       ls.doneMods[modName] = true;
       const nf = ls.modFind[modName]||0;
       mpSet(modName, nf?'ok':'none', nf?nf:'0');
     } else if (lt==='module_fail'){
       const m = ensureMod(modName);
       m.dot.className='mod-dot dead';
-      m.stateEl.textContent = (s.last_message||'失败').replace(/^\[[^\]]*\]\s*/,'');
+      m.stateEl.textContent = (s.last_message||tr('statusError')).replace(/^\[[^\]]*\]\s*/,'');
       ls.doneMods[modName] = true;
-      mpSet(modName,'fail','✕', (s.last_message||'失败'));
+      mpSet(modName,'fail','✕', (s.last_message||tr('statusError')));
     } else if (lt==='result' && s.tool){
       if (s.tool==='submit_finding' && s.module && String(s.result||'').includes('"accepted": true'))
         ls.modFind[s.module] = (ls.modFind[s.module]||0)+1;
       addToolResult(s);
     } else if (s.tool){
       const m = ensureMod(modName);
-      m.stateEl.textContent = '执行中: '+s.tool+' …';
+      m.stateEl.textContent = tr('runningTool',{t:s.tool});
       if (ls.mpChips[modName] && !ls.doneMods[modName])
         mpSet(modName,'run', s.msg_count ? s.msg_count+'t' : '');
     } else if (s.last_message){
@@ -1707,7 +2054,7 @@ function onLive(d){
 function finalizeCard(status){
   const ls = liveState; if(!ls) return;
   const done = status==='done', cancelled = status==='cancelled';
-  ls.statusEl.textContent = done?'完成':(cancelled?'已停止':'失败');
+  ls.statusEl.textContent = done?tr('statusDone'):(cancelled?tr('statusCancelled'):tr('statusError'));
   ls.statusEl.className = 'lc-status ' + (done?'st-done':(cancelled?'st-cancel':'st-error'));
   ls.dot.className = 'lc-dot ' + (done?'done':'dead');
   Object.values(ls.mods).forEach(m=>{
@@ -1733,17 +2080,17 @@ function _fmtRunStatus(){
   if (!rs) return;
   const ls = liveState;
   const txt = $('#runStatusText');
-  let s = '执行中';
+  let s = tr('execNow');
   if (ls){
     const parts = [];
     if (ls.phase) parts.push(ls.phase);
     const now = Date.now();
     const mins = ls.start ? Math.floor((now - ls.start)/60000) : 0;
-    if (mins >= 1) parts.push('已运行 ' + mins + 'min');
+    if (mins >= 1) parts.push(tr('elapsedMin',{n:mins}));
     const idle = ls.lastActivity ? Math.max(0, Math.round((now - ls.lastActivity)/1000)) : 0;
-    if (idle < 90) parts.push('上次活动 ' + idle + 's 前');
-    else parts.push('LLM 思考中… ' + Math.floor(idle/60) + 'min');
-    s = '执行中 · ' + parts.join(' · ');
+    if (idle < 90) parts.push(tr('lastActive',{n:idle}));
+    else parts.push(tr('llmThinkingShort',{n:Math.floor(idle/60)}));
+    s = tr('execNowBar',{parts:parts.join(' · ')});
   }
   if (txt) txt.textContent = s;
 }
@@ -1753,9 +2100,9 @@ function updateSendBtn(){
   const ta = $('#taskInput');
   if (curTaskId){
     // 运行中：发送按钮变"注入指令"（steer 显性化）+ placeholder 提示当前语义
-    b.textContent='注入指令'; b.classList.add('steering');
-    b.title='运行中：此消息将注入正在运行的 agent（下一个 LLM 轮次生效）';
-    if (ta) ta.placeholder='给运行中 agent 下指令（下一轮生效），如：别打 sqli 了，专注 xss';
+    b.textContent=tr('steerBtn'); b.classList.add('steering');
+    b.title=tr('steerTip');
+    if (ta) ta.placeholder=tr('steerPh');
     const ss = $('#steerScope');
     if (ss){ ss.style.display=''; ensureSteerScopeOptions(); }
     // 状态栏显示（方块动画）
@@ -1765,8 +2112,8 @@ function updateSendBtn(){
     }
   }
   else {
-    b.textContent='发送'; b.classList.remove('stopping','steering'); b.title='发送渗透任务';
-    if (ta) ta.placeholder='描述渗透任务，如：打 DVWA 全模块，每模块一条干净 PoC 就下一个，别过度验证';
+    b.textContent=tr('sendBtn'); b.classList.remove('stopping','steering'); b.title=tr('sendP');
+    if (ta) ta.placeholder=tr('taskPh');
     const ss = $('#steerScope');
     if (ss){ ss.style.display='none'; ss.value=''; }
     if (rs) rs.classList.remove('on');
@@ -1787,7 +2134,7 @@ async function ensureSteerScopeOptions(){
   }
   if (!mods.length || steerScopeLoadedFor === curTaskId) return;
   const keep = sel.value;
-  sel.innerHTML = '<option value="">全部模块</option>' +
+  sel.innerHTML = '<option value="">' + tr('allModules') + '</option>' +
     mods.map(m=>`<option value="${m}">${m}</option>`).join('');
   if (mods.includes(keep)) sel.value = keep;
   steerScopeLoadedFor = curTaskId;
@@ -1820,7 +2167,7 @@ function downloadReport(taskId, md){
   a.href = url; a.download = 'pentest_report_'+taskId+'.md';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  toast('报告已开始下载');
+  toast(tr('reportDlStart'));
 }
 
 /* 迷你 Markdown 渲染（无外部依赖，离线可用）。
@@ -1867,8 +2214,8 @@ function openReportModal(taskId, title, md){
     ov.id = 'mdOverlay'; ov.className = 'md-overlay';
     ov.innerHTML = `<div class="md-modal">
       <div class="md-head"><span class="md-title"></span><span style="flex:1"></span>
-        <button class="tbtn md-dl">⬇ 下载 .md</button>
-        <button class="tbtn md-close" title="关闭（Esc）">✕</button></div>
+        <button class="tbtn md-dl">${tr('dlMd')}</button>
+        <button class="tbtn md-close" title="${tr('closeTip')}">✕</button></div>
       <div class="md-body"></div></div>`;
     document.body.appendChild(ov);
     ov.addEventListener('click', e=>{ if (e.target===ov) closeReportModal(); });
@@ -1896,9 +2243,9 @@ function fmtDur(created, updated){
     const ms = new Date(updated) - new Date(created);
     if (!(ms >= 0)) return '';
     const m = Math.floor(ms/60000);
-    if (m < 1) return '不到 1 分钟';
-    if (m < 60) return m + ' 分钟';
-    return Math.floor(m/60) + ' 小时 ' + (m % 60) + ' 分';
+    if (m < 1) return tr('durLt1m');
+    if (m < 60) return tr('durMin',{n:m});
+    return tr('durHm',{h:Math.floor(m/60), m:m%60});
   } catch(e){ return ''; }
 }
 // 本地时间友好格式化：今天/昨天/日期 + HH:MM
@@ -1906,26 +2253,26 @@ function fmtWhenRange(created, updated){
   try {
     const dur = fmtDur(created, updated);
     const s = new Date(created), e = new Date(updated);
-    if (isNaN(s)) return dur ? '耗时 ' + dur : '';
+    if (isNaN(s)) return dur ? tr('durPrefix',{d:dur}) : '';
     const dstrOf = d => d.toDateString();
     const hmOf = d => d.toTimeString().slice(0,5);
     const dayOf = d => {
       const now = new Date();
-      if (d.toDateString() === now.toDateString()) return '今天';
+      if (d.toDateString() === now.toDateString()) return tr('today');
       const y = new Date(now); y.setDate(now.getDate()-1);
-      if (d.toDateString() === y.toDateString()) return '昨天';
+      if (d.toDateString() === y.toDateString()) return tr('yesterday');
       return d.toLocaleDateString();
     };
     let range = dayOf(s) + ' ' + hmOf(s);
     if (!isNaN(e) && !(dstrOf(s) === dstrOf(e) && hmOf(s) === hmOf(e))){
       range += ' – ' + (dstrOf(s) === dstrOf(e) ? hmOf(e) : dayOf(e) + ' ' + hmOf(e));
     }
-    return dur ? range + ' · 耗时 ' + dur : range;
+    return dur ? range + ' · ' + tr('durPrefix',{d:dur}) : range;
   } catch(e){ return ''; }
 }
 function findingsSummary(findings){
   const valid = (findings||[]).filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
-  if (!valid.length) return '无有效发现';
+  if (!valid.length) return tr('noValidFindings');
   const sev = {critical:0, high:0, medium:0, low:0, info:0};
   const cls = [];
   valid.forEach(f=>{
@@ -1935,16 +2282,16 @@ function findingsSummary(findings){
   });
   const parts = [];
   ['critical','high','medium','low','info'].forEach(k=>{ if (sev[k]) parts.push(k+' '+sev[k]); });
-  let s = valid.length+' 条有效发现';
+  let s = tr('validFindings',{n:valid.length});
   if (parts.length) s += '（'+parts.join(' / ')+'）';
   const confirmed = valid.filter(f=>String(f.status||'').toLowerCase()==='confirmed').length;
   if (confirmed) s += ' · confirmed '+confirmed;
-  if (cls.length) s += ' · '+cls.length+' 类漏洞（'+cls.slice(0,6).join('/')+(cls.length>6?'…':'')+'）';
+  if (cls.length) s += ' · '+tr('vulnClasses',{n:cls.length, list:cls.slice(0,6).join('/')+(cls.length>6?'…':'')});
   return s;
 }
-const STATUS_TAIL = {done:'自然完成', cancelled:'用户终止（保留部分成果）', interrupted:'网关重启中断', runtime_error:'模型失败', extraction_error:'findings 解析失败'};
+function STATUS_TAIL(){ return {done:tr('tailDone'), cancelled:tr('tailCancelled'), interrupted:tr('tailInterrupted'), runtime_error:tr('tailRuntime'), extraction_error:tr('tailExtraction')}; }
 function statusTail(status, meta){
-  let s = STATUS_TAIL[status] || status;
+  let s = STATUS_TAIL()[status] || status;
   if (status==='runtime_error' && meta && meta.runtime_error_summary) s += '：'+String(meta.runtime_error_summary).slice(0,80);
   return s;
 }
@@ -1977,9 +2324,9 @@ async function onTaskDone(status){
   let meta=null;
   try { meta = await api(`/api/task/${taskId}/meta`); } catch(e){}
   const dur = meta ? fmtWhenRange(meta.created_at, meta.updated_at) : '';
-  const stText = status==='done'?'完成':(status==='cancelled'?'已停止':'失败');
-  notify(`渗透任务${stText}`, `${taskId} · ${fcount} 条发现${dur?' · '+dur:''}`);
-  toast(`任务${stText}：${fcount} 条发现` + (dur ? ' · '+dur : ''));
+  const stText = status==='done'?tr('statusDone'):(status==='cancelled'?tr('statusCancelled'):tr('statusError'));
+  notify(tr('notifyTitle',{st:stText}), `${taskId} · ${tr('findingsN',{n:fcount})}${dur?' · '+dur:''}`);
+  toast(tr('toastDone',{st:stText, f:tr('findingsN',{n:fcount})}) + (dur ? ' · '+dur : ''));
   if (sid) delete runningTasks[sid];
   // 完成消息只在"当前正看任务所属会话"时贴进对话；否则服务端已存库，重开会话可见
   if (sid && sid!==curSid){ refreshSessions(); return; }
@@ -1988,19 +2335,19 @@ async function onTaskDone(status){
   try { await new Promise(r=>setTimeout(r,400)); rep = await api(`/api/task/${taskId}/report`); } catch(e){}
   const headRow = el('div','rep-head');
   headRow.appendChild(el('span','status-pill st-'+(status==='done'?'done':status==='cancelled'?'cancel':'error'),
-      (status==='done'?'任务完成':status==='cancelled'?'任务已停止':'任务失败') + ' · ' + taskId));
+      (status==='done'?tr('taskDone'):status==='cancelled'?tr('taskStopped'):tr('taskFailed')) + ' · ' + taskId));
   if (rep && rep.report_md){
-    const dl = el('button','tbtn rep-dl','⬇ 下载报告 (.md)');
+    const dl = el('button','tbtn rep-dl',tr('dlReportBtn'));
     dl.onclick = ()=> downloadReport(taskId, rep.report_md);
     headRow.appendChild(dl);
   }
-  const dlLog = el('button','tbtn rep-dl','⬇ 执行日志 (.txt)');
+  const dlLog = el('button','tbtn rep-dl',tr('dlLogBtn'));
   dlLog.onclick = ()=> location.href = `/api/task/${taskId}/log/download`;
   headRow.appendChild(dlLog);
   box.appendChild(headRow);
   const valid = ((rep && rep.raw_findings)||[]).filter(f=>String(f.status||'found').toLowerCase()!=='false_positive');
   box.appendChild(el('div','meta-line', valid.length
-      ? valid.length+' 条有效发现（详见上方执行卡的漏洞板）' : '无有效发现'));
+      ? tr('validFindingsNote',{n:valid.length}) : tr('noValidFindings')));
   const sumLine = [dur, findingsSummary(boardFindings), statusTail(status, meta)].filter(Boolean).join(' · ');
   if (sumLine) box.appendChild(el('div','meta-line', sumLine));
   $('#msgs').appendChild(box);
@@ -2011,13 +2358,13 @@ async function onTaskDone(status){
 async function stopTask(){
   if (!curTaskId) return;
   const btn=$('#sendBtn');
-  btn.disabled=true; btn.textContent='停止中…';
+  btn.disabled=true; btn.textContent=tr('stopping');
   try {
     const r = await api(`/api/task/${curTaskId}/cancel`,{method:'POST',json:{}});
-    toast(`已下发停止：cancel ${r.cancelled} 个子任务，杀 ${r.containers_killed} 个沙箱`);
+    toast(tr('stopIssued',{c:r.cancelled, k:r.containers_killed}));
     // 等流 done 事件 → onTaskDone 复位按钮
   } catch(e){
-    toast('停止失败: '+e.message);
+    toast(tr('stopFail',{e:e.message}));
     btn.disabled=false; updateSendBtn();
   }
 }
@@ -2030,13 +2377,13 @@ function guessTargetId(t){
 
 async function sendTask(){
   const task = $('#taskInput').value.trim();
-  if(!task){ toast('请输入任务描述'); return; }
+  if(!task){ toast(tr('needTaskText')); return; }
   if (curTaskId){ sendSteer(); return; }
-  if(!sessionToken && authEnabled){ toast('请先登录'); return; }
+  if(!sessionToken && authEnabled){ toast(tr('needLogin')); return; }
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   if(!curSid){
     try { const d=await api('/api/sessions',{method:'POST',json:{}}); curSid=d.id; }
-    catch(e){ toast('创建会话失败: '+e.message); return; }
+    catch(e){ toast(tr('createSessFail',{e:e.message})); return; }
   }
   const target = $('#targetInput').value.trim();
   const body = {session_id:curSid, task, target};
@@ -2053,8 +2400,8 @@ async function sendTask(){
   $('#sendBtn').disabled=true;
   try {
     const d = await api('/api/task',{method:'POST',json:body});
-    $('#msgs').appendChild(renderMsg('assistant','任务已分发后台执行…',{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(' 参数:'+JSON.stringify(d.params)):''), status:'running', cls:'dispatch-msg', data:{task:d.task_id}}));
-    if (d.param_warnings && d.param_warnings.length) toast('参数剔除: '+d.param_warnings.join('; '));
+    $('#msgs').appendChild(renderMsg('assistant',tr('taskDispatched'),{meta:'task='+d.task_id+(d.params&&Object.keys(d.params).length?(''+tr('paramMeta')+JSON.stringify(d.params)):''), status:'running', cls:'dispatch-msg', data:{task:d.task_id}}));
+    if (d.param_warnings && d.param_warnings.length) toast(tr('paramDropped',{w:d.param_warnings.join('; ')}));
     saveCurSessParams();               // 记住本会话的这套参数（后续任务沿用）
     if ($('#paramOverlay').style.display !== 'none') closeParamDrawer();
     runningTasks[curSid] = d.task_id; // 运行点 + 切会话后可重连
@@ -2065,14 +2412,14 @@ async function sendTask(){
   } catch(e){
     updateSendBtn();
     $('#sendBtn').disabled=false;
-    $('#msgs').appendChild(renderMsg('error','派发失败: '+e.message));
+    $('#msgs').appendChild(renderMsg('error',tr('dispatchFail',{e:e.message})));
   }
 }
 
 /* 执行中发消息 = 飞行中指令（in-run steer）：注入运行中 agent，下一轮生效 */
 async function sendSteer(){
   const text = $('#taskInput').value.trim();
-  if(!text){ toast('请输入指令内容'); return; }
+  if(!text){ toast(tr('needSteerText')); return; }
   if(!curTaskId){ sendTask(); return; }
   $('#taskInput').value='';
   const _ta=$('#taskInput'); _ta.style.height='auto'; _ta.style.height='52px';
@@ -2082,11 +2429,12 @@ async function sendSteer(){
     const scope = $('#steerScope') && $('#steerScope').value;
     if (scope) payload.modules = [scope];   // 定向指令：只注入该模块专员
     const r = await api(`/api/task/${curTaskId}/message`,{method:'POST',json:payload});
+    const scopeTxt = scope ? (scope+' '+tr('module')) : tr('allModules');
     $('#msgs').appendChild(renderMsg('sys',
-      r.injected>0 ? `指令已注入 ${r.injected} 个运行中 agent（${scope?scope+' 模块':'全部模块'}，下一轮生效）`
-                   : `指令已收到（${scope?scope+' 模块':'全部模块'}；当前无运行中 agent，将在下一批子 agent 自动注入）`));
+      r.injected>0 ? tr('steerInjected',{n:r.injected, scope:scopeTxt})
+                   : tr('steerQueued',{scope:scopeTxt})));
   } catch(e){
-    $('#msgs').appendChild(renderMsg('error','指令注入失败: '+e.message));
+    $('#msgs').appendChild(renderMsg('error',tr('steerFail',{e:e.message})));
   }
   scrollBottom(true);
 }
@@ -2112,7 +2460,7 @@ function autogrow(){
   async function adoptRunningTask(t){
     // openSession 统一处理：消息 + 任务记录内联渲染 + running 任务接流（执行卡挂到对应任务消息下）
     await openSession(t.session_id);
-    const sys = renderMsg('sys','检测到进行中的任务 '+t.task_id+'，已恢复实时显示');
+    const sys = renderMsg('sys',tr('resumedTask',{id:t.task_id}));
     const card = $('#msgs').querySelector('.livecard');
     if (card) $('#msgs').insertBefore(sys, card); else $('#msgs').appendChild(sys);
     scrollBottom(true);

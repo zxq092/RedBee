@@ -310,17 +310,33 @@ async def run():
         else:
             check("重跑还原任务文本+目标", r9b.get("cap") and r9b["cap"]["len"] > 20 and r9b["cap"]["target"], json.dumps(r9b))
 
-        # 10. 语言切换
+        # 10. 语言切换（含 EN 覆盖断言）
         print("[10] 语言切换")
         r10 = await pg.evaluate("""()=>{
           const before=document.getElementById('newbtn').textContent;
           document.getElementById('langBtn').click();
-          const after=document.getElementById('newbtn').textContent;
           const lang=document.documentElement.lang;
+          const en={
+            title: document.title,
+            brand: document.querySelector('.brand span[data-i18n="brand"]')?.textContent,
+            newSess: document.getElementById('newbtn').textContent,
+            stop: document.getElementById('stopBtn').textContent,
+            send: document.getElementById('sendBtn').textContent,
+            phMod: document.getElementById('pMaxModules').placeholder,
+            pg: document.querySelector('.pg-title[data-i18n="pgCoverage"]')?.textContent,
+            opts: [...document.querySelectorAll('#tvStatus option')].map(x=>x.textContent).join(','),
+            th: [...document.querySelectorAll('.tv-table th')].map(x=>x.textContent).join(','),
+          };
           document.getElementById('langBtn').click();  // 切回
-          return {before, after, lang};
+          return {before, lang, en};
         }""")
-        check("切换生效", r10["before"] != r10["after"] and r10["lang"] in ("zh-CN", "en"), json.dumps(r10))
+        check("切换生效", r10["before"].startswith("＋") and r10["lang"] in ("zh-CN", "en"), json.dumps(r10))
+        need = ["RedBee · Pentest Console", "RedBee Console", "+ New Session", "■ Stop", "Send",
+                "Global 9", "Coverage", "All statuses,Running,Done,Stopped,Failed,Interrupted",
+                "Task,Status,Target,Findings,Modules"]
+        blob = json.dumps(r10["en"], ensure_ascii=False)
+        missing = [w for w in need if w not in blob]
+        check("EN 全量覆盖", not missing, "missing: " + ",".join(missing))
 
         # 汇总：零 JS 错误
         print("[*] 全程 JS 错误")

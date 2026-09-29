@@ -1019,6 +1019,43 @@ function _v(o, vars){
   return s;
 }
 // 按字段名 k 取双语：TRANS = {zh:{k:中}, en:{k:英}}
+/* 模块名展示：行话缩写 + 人话解释（切语言时由 relabelModules 刷新动态节点） */
+const MOD_NAMES = {
+  sqli:      {zh:'SQL 注入',        en:'SQL Injection'},
+  xss:       {zh:'跨站脚本',        en:'XSS'},
+  auth:      {zh:'认证与会话',      en:'Auth & Session'},
+  upload:    {zh:'上传/文件包含',   en:'Upload & Inclusion'},
+  cmdi:      {zh:'命令注入/RCE',    en:'Command Injection / RCE'},
+  ssrf:      {zh:'SSRF',            en:'SSRF'},
+  idor:      {zh:'越权访问/IDOR',   en:'IDOR'},
+  csrf:      {zh:'CSRF',            en:'CSRF'},
+  misconfig: {zh:'信息泄露/错配',   en:'Misconfig & Disclosure'},
+  llm:       {zh:'LLM/AI 安全',     en:'LLM/AI Security'},
+  main:      {zh:'主控',            en:'Main'},
+  recon:     {zh:'侦察',            en:'Recon'},
+};
+function modLabel(m){
+  const n = MOD_NAMES[m];
+  const h = n ? n[lang] : '';
+  return (h && h.toLowerCase() !== String(m||'').toLowerCase()) ? (m+' · '+h) : (m||'');
+}
+/* 切语言后重贴动态模块标签（执行卡标题/模块地图 chip/steer 下拉/回执文案里的模块名） */
+function relabelModules(){
+  try {
+    if (liveState){
+      Object.values(liveState.mods).forEach(m=>{
+        const eln = m.wrap && m.wrap.querySelector('.mod-name');
+        if (eln) eln.textContent = modLabel(m.name);
+      });
+      Object.keys(liveState.mpChips).forEach(n=>{
+        const c = liveState.mpChips[n];
+        if (c && c.lastChild && c.lastChild.nodeType === 3) c.lastChild.nodeValue = modLabel(n);
+      });
+    }
+    const sel = $('#steerScope');
+    if (sel && sel.options){ [...sel.options].forEach(o=>{ if (o.value) o.textContent = modLabel(o.value); }); }
+  } catch(e){}
+}
 function t(key, vars){ const o = { zh: (TRANS.zh||{})[key], en: (TRANS.en||{})[key] }; return _v(o, vars) || key; }
 // allI18nText(): 收集静态节点需翻译的文案，供 applyI18n 统一替换
 function setLang(v){
@@ -1026,9 +1063,9 @@ function setLang(v){
   localStorage.setItem('redbee_lang', lang);
   applyI18n();
   document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN';
-  // 刷新动态文案（发送按钮/批量删除/会话列表/任务总览）
-  try { updateSendBtn(); updateBulkBtn(); refreshSessions();
-        if ($('#taskView') && $('#taskView').style.display!=='none') renderTaskTable(); } catch(e){}
+  // 刷新动态文案（发送按钮/批量删除/会话列表/任务总览/模块标签）
+  try { updateSendBtn(); updateBulkBtn(); refreshSessions(); relabelModules();
+         if ($('#taskView') && $('#taskView').style.display!=='none') renderTaskTable(); } catch(e){}
 }
 function cycleLang(){ setLang(lang === 'zh' ? 'en' : 'zh'); }
 function tr(key, vars){ return t(key, vars); }
@@ -1906,7 +1943,7 @@ function ensureMod(name){
   const dot = el('span','mod-dot');
   const stateEl = el('span','mod-state',tr('statusRunning'));
   const callsEl = el('span','mod-calls',tr('callsCount',{n:0}));
-  h.append(dot, el('span','mod-name', name), el('span','mod-agent',tr('childAgent')),
+  h.append(dot, el('span','mod-name', modLabel(name)), el('span','mod-agent',tr('childAgent')),
            stateEl, callsEl, el('span','chev','▾'));
   const body = el('div','lc-mod-body');
   wrap.append(h, body);
@@ -1924,7 +1961,7 @@ function mpChip(name){
   if (c) return c;
   c = el('button','mp mp-wait');
   c.appendChild(el('i'));
-  c.appendChild(document.createTextNode(name));
+  c.appendChild(document.createTextNode(modLabel(name)));
   c.onclick = ()=>{
     const m = ls.mods[name];
     if (m){ m.wrap.classList.remove('collapsed'); m.wrap.scrollIntoView({behavior:'smooth', block:'nearest'}); }
@@ -2135,7 +2172,7 @@ async function ensureSteerScopeOptions(){
   if (!mods.length || steerScopeLoadedFor === curTaskId) return;
   const keep = sel.value;
   sel.innerHTML = '<option value="">' + tr('allModules') + '</option>' +
-    mods.map(m=>`<option value="${m}">${m}</option>`).join('');
+    mods.map(m=>`<option value="${m}">${modLabel(m)}</option>`).join('');
   if (mods.includes(keep)) sel.value = keep;
   steerScopeLoadedFor = curTaskId;
 }
@@ -2429,7 +2466,7 @@ async function sendSteer(){
     const scope = $('#steerScope') && $('#steerScope').value;
     if (scope) payload.modules = [scope];   // 定向指令：只注入该模块专员
     const r = await api(`/api/task/${curTaskId}/message`,{method:'POST',json:payload});
-    const scopeTxt = scope ? (scope+' '+tr('module')) : tr('allModules');
+    const scopeTxt = scope ? modLabel(scope) : tr('allModules');
     $('#msgs').appendChild(renderMsg('sys',
       r.injected>0 ? tr('steerInjected',{n:r.injected, scope:scopeTxt})
                    : tr('steerQueued',{scope:scopeTxt})));

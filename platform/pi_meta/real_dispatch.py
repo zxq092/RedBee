@@ -82,6 +82,8 @@ TASK_PARAM_SPECS = {
     "skip_recon": ("bool", None, None),
     "force_all_modules": ("bool", None, None),
     "model": ("str", None, None),  # 本任务专用模型（排第一候选，挂则降级回队列）
+    "modules": ("modules", None, None),  # 显式模块列表（逗号分隔，覆盖 planner 选取）
+    "mode": ("mode", None, None),  # 任务模式：ctf(目标猎取) | pentest(默认，OWASP 类 fan-out)
 }
 
 
@@ -116,6 +118,23 @@ def validate_task_params(raw) -> tuple[dict, list[str]]:
                         errs.append(f"model 不在已配置队列（可用: {'/'.join(queue)}）")
                         continue
                 out[k] = v
+            elif kind == "mode":
+                mv = str(v).strip().lower()
+                if mv not in ("ctf", "pentest"):
+                    errs.append(f"{k} 必须是 ctf 或 pentest（收到: {v!r}）")
+                    continue
+                out[k] = mv
+            elif kind == "modules":
+                if not isinstance(v, str):
+                    errs.append(f"{k} 必须是字符串（逗号分隔模块名）")
+                    continue
+                from .planner import MODULES as _MODS
+                names = [x.strip() for x in v.split(",") if x.strip()]
+                bad = [x for x in names if x not in _MODS]
+                if not names or bad:
+                    errs.append(f"{k} 无效（合法模块: {'/'.join(_MODS)}；未知: {','.join(bad) or '(空)'}）")
+                    continue
+                out[k] = names
             else:
                 iv = int(v)
                 if (lo is not None and iv < lo) or (hi is not None and iv > hi):
@@ -154,8 +173,12 @@ async def _inhouse_run(text: str, target: str, runtime: ResolvedRuntime,
         is_known = bool(recipe)
         if task_params:
             recipe = merge_task_params(recipe, task_params)
-        modules = planner.modules_for(target, text, target_id,
-                                      max_modules=recipe.get("max_modules"))
+        explicit_modules = (task_params or {}).get("modules")
+        if explicit_modules:
+            modules = explicit_modules
+        else:
+            modules = planner.modules_for(target, text, target_id,
+                                          max_modules=recipe.get("max_modules"))
         if is_known:
             text = (text + "\n\n" + target_profile.known_task_suffix()).strip()
         orch = OrchestratorV2()

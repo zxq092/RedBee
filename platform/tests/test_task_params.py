@@ -44,6 +44,22 @@ def test_validate_task_params_model(monkeypatch):
     assert out == {} and "不在已配置队列" in errs[0]
 
 
+def test_validate_task_params_modules():
+    from pi_meta.real_dispatch import validate_task_params
+    out, errs = validate_task_params({"modules": "idor,sqli"})
+    assert out == {"modules": ["idor", "sqli"]} and errs == []
+    out, errs = validate_task_params({"modules": " idor , sqli "})
+    assert out == {"modules": ["idor", "sqli"]} and errs == []
+    # 未知模块名拒绝
+    out, errs = validate_task_params({"modules": "idor,bogus"})
+    assert out == {} and "bogus" in errs[0]
+    # 空/非字符串拒绝
+    out, errs = validate_task_params({"modules": "  "})
+    assert out == {} and len(errs) == 1
+    out, errs = validate_task_params({"modules": ["idor"]})
+    assert out == {} and len(errs) == 1
+
+
 def test_merge_task_params():
     from pi_meta.real_dispatch import merge_task_params
     recipe = {"max_modules": 9, "force_all": True, "skip_recon": True,
@@ -132,3 +148,34 @@ async def test_inhouse_run_known_target_suffix_only_for_known(monkeypatch):
     assert "KNOWN TARGET" in captured["text"]          # 已知靶场仍加防过度验证文案
     assert captured["recipe"]["max_parallel"] == 1      # 任务覆盖配方
     assert captured["recipe"]["skip_recon"] is True     # 配方其余项保留
+
+
+@pytest.mark.asyncio
+async def test_inhouse_run_explicit_modules_bypass_planner(monkeypatch):
+    """params.modules 显式指定 → 直接用，不走 planner.modules_for。"""
+    import agents.orchestrator_v2 as orch_mod
+    import pi_meta.real_dispatch as rd
+    import pi_meta.target_profile as tp
+
+    captured = {}
+
+    class FakeOrch:
+        async def run(self, text, target, task_id="", runtime=None, modules=None,
+                      progress_cb=None, target_id="", recipe=None):
+            captured["modules"] = modules
+            return {"ok": True, "findings": [], "assigned_modules": modules or []}
+
+    monkeypatch.setattr(orch_mod, "OrchestratorV2", FakeOrch)
+    monkeypatch.setattr(rd.planner, "modules_for",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("不应调用 planner")))
+    monkeypatch.setattr(tp, "target_profile_exists", lambda tid: False)
+
+    rt = SimpleNamespace(runtime_id="rt-test", model="m")
+    resolved = SimpleNamespace(runtime=rt, candidate_runtimes=[rt], available_indices=[0],
+                               selected_index=0, degraded_from=None, degraded_chain=["m"],
+                               runtime_id="rt-test", health_checked_at="", probe_status="unprobed",
+                               probe_error_code=None)
+    await rd._inhouse_run("attack", "http://10.0.0.1", resolved,
+                          task_id="t-test", target_id="unknown-x",
+                          task_params={"modules": ["idor"], "force_all_modules": True})
+    assert captured["modules"] == ["idor"]

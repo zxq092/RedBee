@@ -32,13 +32,17 @@ def _budget_seconds() -> int:
     return int(cfg_env("PIMETA_TASK_BUDGET", "5400"))
 
 
-def outer_slot_modules(target: str, task: str, target_id: str = "") -> list[str]:
+def outer_slot_modules(target: str, task: str, target_id: str = "",
+                       mode: str = "pentest") -> list[str]:
     """外层槽位模块列表。
 
+    ctf：单 objective 猎手槽位（不走 OWASP 类选择，board 标签/派发文本都是 objective）。
     v2（默认）：引擎内部已做全模块 fan-out（root-decide/force-all 全派候选模块），
     外层只需 1 个槽位。旧版外层 fan-out N 个模块槽位、每个槽位把全部 9 模块流水线
     重跑一遍 → N 倍冗余重跑（R10 实测 2 波×9=18 个子 agent 烧掉整轮预算）。
     v1（HINSE_V2=0 单 agent）：每槽位打一个模块，保留外层 fan-out。"""
+    if str(mode or "pentest") == "ctf":
+        return ["objective"]
     mods = planner.modules_for(target, task, target_id)
     if cfg_env("HINSE_V2", "1") not in ("", "0", "false", "False"):
         return mods[:1]
@@ -59,7 +63,8 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
     slots = [(i, a) for i, a in enumerate(agents or ["RedBee"])]
     from agents.tools import resolve_target_id
     normalized_target_id = resolve_target_id(target, target_id)
-    mod_q: deque = deque(outer_slot_modules(target, task, normalized_target_id))
+    mod_q: deque = deque(outer_slot_modules(target, task, normalized_target_id,
+                                             mode=(task_params or {}).get("mode", "")))
     planned_modules = list(mod_q)
     ver_q: deque = deque()            # 待确认 {fid, f, exclude_slot}(槽位级, 支持同名引擎多 flow)
     busy: dict[int, asyncio.Task] = {}
@@ -75,14 +80,14 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
         error = _resolved.error
         sessions.save_task_metadata(
             task_id, target, normalized_target_id, "", list(agents or ["RedBee"]),
-            [m for m in planned_modules if m in planner.MODULES], "runtime_error",
+            [m for m in planned_modules if m in planner.MODULES or m == "objective"], "runtime_error",
             runtime_error_code=error.code if error else "CONFIG_ERROR",
             runtime_error_summary=error.redacted_message if error else "runtime resolution failed")
         raise RuntimeError(error.redacted_message if error else "runtime resolution failed")
     runtime = _resolved.runtime
     sessions.save_task_metadata(
         task_id, target, normalized_target_id, runtime.runtime.model, list(agents or ["RedBee"]),
-        [m for m in planned_modules if m in planner.MODULES], "running",
+        [m for m in planned_modules if m in planner.MODULES or m == "objective"], "running",
         runtime_model=runtime.runtime.model, runtime_id=runtime.runtime_id,
         degraded_from=runtime.degraded_from or "", degraded_chain=json.dumps(runtime.degraded_chain),
         model_override="", session_id=session_id, task_text=task,
@@ -235,7 +240,7 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
                 if not fs and not res.get("ok"):
                     sessions.save_task_metadata(
                         task_id, target, normalized_target_id, runtime.runtime.model,
-                        list(agents or ["RedBee"]), [m for m in planned_modules if m in planner.MODULES], status="runtime_error",
+                        list(agents or ["RedBee"]), [m for m in planned_modules if m in planner.MODULES or m == "objective"], status="runtime_error",
                         runtime_error_code=str(res.get("error", "")),
                         runtime_error_summary=str(res.get("error", ""))[:500])
                     raise RuntimeError(str(res.get("error", "agent execution failed")))
@@ -244,7 +249,7 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
                     if not extraction.get("ok"):
                         sessions.save_task_metadata(
                             task_id, target, normalized_target_id, runtime.runtime.model,
-                            list(agents or ["RedBee"]), [m for m in planned_modules if m in planner.MODULES], status="extraction_error",
+                            list(agents or ["RedBee"]), [m for m in planned_modules if m in planner.MODULES or m == "objective"], status="extraction_error",
                             runtime_error_code=(extraction.get("error").code if extraction.get("error") else "PARSE_ERROR"),
                             runtime_error_summary=(extraction.get("error").redacted_message if extraction.get("error") else "findings parse failed"))
                         raise RuntimeError(extraction.get("error").redacted_message if extraction.get("error") else "findings parse failed")
@@ -292,7 +297,7 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
     for result in results:
         actual_modules.extend(result.get("assigned_modules") or result.get("modules") or [])
     if not actual_modules:
-        actual_modules = [m for m in planned_modules if m in planner.MODULES]
+        actual_modules = [m for m in planned_modules if m in planner.MODULES or m == "objective"]
     actual_modules = list(dict.fromkeys(actual_modules))
     sessions.save_task_metadata(
         task_id, target, normalized_target_id, runtime.runtime.model, list(agents or ["RedBee"]),

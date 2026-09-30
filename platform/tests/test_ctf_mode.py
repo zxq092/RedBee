@@ -245,3 +245,30 @@ def test_objective_module_loads_ctf_hunt_skill():
 def test_ctf_hunt_skill_in_registry():
     from agents.tools import _SKILLS_PATH
     assert "ctf-hunt" in _SKILLS_PATH
+
+
+# ---------- 外层编排：ctf 槽位标签/派发文本不做类锁定（xben-003 复盘：未知靶场被锁 sqli）----------
+
+def test_outer_slot_modules_ctf_single_objective():
+    from pi_meta.orchestrator import outer_slot_modules
+    # ctf：不走 OWASP 类选择，单 objective 槽位（board 标签/元数据一致）
+    assert outer_slot_modules("http://10.0.0.99", "找到 flag", "", mode="ctf") == ["objective"]
+    # 默认/显式 pentest：行为零变化（v2 取 planner 首模块）
+    mods = outer_slot_modules("http://10.0.0.99", "全模块渗透", "")
+    assert mods and mods[0] != "objective"
+
+
+def test_build_exploit_prompt_objective_no_class_lock():
+    from pi_meta.real_dispatch import build_exploit_prompt
+    text = build_exploit_prompt("http://10.0.0.99", "唯一目标：找到隐藏的 flag", "objective")
+    assert "OBJECTIVE" in text
+    assert "anomalous data" in text.lower() or "ANOMALOUS DATA" in text
+    assert "FOCUS AREA" not in text                      # 无类锁（pre_recon/recon 也会读这段）
+    assert "Work ONLY within this focus area" not in text
+
+
+def test_build_exploit_prompt_pentest_unchanged():
+    from pi_meta.real_dispatch import build_exploit_prompt
+    text = build_exploit_prompt("http://10.0.0.99", "打一下", "sqli")
+    assert "FOCUS AREA: sqli" in text
+    assert "Work ONLY within this focus area" in text

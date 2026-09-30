@@ -32,7 +32,25 @@ from . import planner
 
 def build_exploit_prompt(target: str, task: str, module: str,
                          skip_brief: str = "") -> str:
-    """限定攻击模块的派发 prompt(带"已确认清单"让 agent 跳过 + KB 运行时直查指引)。"""
+    """限定攻击模块的派发 prompt(带"已确认清单"让 agent 跳过 + KB 运行时直查指引)。
+
+    module="objective"（CTF/目标猎取模式）：不做类锁定，数据面优先——
+    侦察/猎手各相位都读这段文本，类焦点会把侦察带偏（实测 xben-003 被锁 sqli）。"""
+    if module == "objective":
+        parts = [f"CTF objective hunt on {target}. {task}",
+                 "OBJECTIVE: a single target object (flag / shell / specific record) is hidden "
+                 "somewhere in this target. The objective is usually hidden as ANOMALOUS DATA, "
+                 "not as a vulnerability class — read the DATA (tables, list rows, response "
+                 "bodies, IDs, special names) before the structure (JS, params, status codes)."]
+        if skip_brief:
+            parts.append(skip_brief)
+        parts.append(
+            "\nWork toward the OBJECTIVE, not a vulnerability class. Enumerate data surfaces "
+            "(lists, tables, ID-bearing values) and chase every anomaly to its end. "
+            "When the objective is in hand: submit_finding with the full raw response as "
+            "evidence, then finish immediately — do not keep hunting."
+        )
+        return "\n".join(parts)
     desc = planner.MODULES.get(module, module)
     parts = [f"Pentest {target}. {task}", f"FOCUS AREA: {module} — {desc}."]
     if skip_brief:

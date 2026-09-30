@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from agents.orchestrator_v2 import TARGETS_DIR
 from config import env as cfg_env
@@ -19,6 +20,64 @@ def profile_path(target_id: str) -> str:
 
 def target_profile_exists(target_id: str) -> bool:
     return bool(target_id) and os.path.exists(profile_path(target_id))
+
+
+# ---- 任务模式判定：pentest(默认, OWASP 类 fan-out) | ctf(目标猎取, 单猎手+flag 早停) ----
+# 判定顺序: 显式 params.mode > 任务文本目标信号 > 靶场档案 kind: ctf。
+# PIMETA_CTF_AUTO=0 关闭自动判定（只认显式），整体回滚开关。
+# 文本信号必须"目标性动词 + flag"（光出现 CTF 不算，防"渗透这个 CTF 平台"误判）。
+_CTF_TEXT_RE = re.compile(
+    r"flag\s*\{"
+    r"|(?:找到|获取|拿到|取出|夺取|hunt|take|capture|find|get)[^。.\n]{0,12}(?:the\s*)?flag"
+    r"|通关"
+    r"|ctf[^。.\n]{0,16}(?:flag|通关|题目)",
+    re.IGNORECASE,
+)
+_CTF_PROFILE_RE = re.compile(r"(?im)^\s*[-*]?\s*kind:\s*ctf\b")
+
+
+def profile_is_ctf(target_id: str) -> bool:
+    """靶场档案标记 kind: ctf（v2 由 flag 任务完成后自动写入；当前也可手工加）。"""
+    if not target_profile_exists(target_id):
+        return False
+    try:
+        with open(profile_path(target_id), encoding="utf-8") as f:
+            return bool(_CTF_PROFILE_RE.search(f.read()))
+    except Exception:
+        return False
+
+
+def resolve_mode(task_text: str, target_id: str, explicit: str | None = None) -> tuple[str, str]:
+    """返回 (mode, source)。source ∈ explicit / task-text / target-profile / default。"""
+    if explicit in ("ctf", "pentest"):
+        return explicit, "explicit"
+    if cfg_env("PIMETA_CTF_AUTO", "1") == "1":
+        if task_text and _CTF_TEXT_RE.search(task_text):
+            return "ctf", "task-text"
+        if profile_is_ctf(target_id):
+            return "ctf", "target-profile"
+    return "pentest", ("explicit" if explicit else "default")
+
+
+def mark_profile_ctf(target_id: str) -> bool:
+    """档案标记 kind: ctf（CTF 目标达成后调用；幂等，已标/无档案返回 False）。
+
+    闭环：flag 型 CTF 任务成功 → 档案标 kind:ctf → 下次只说"打 X"（无 flag 措辞）
+    也自动走 CTF 模式（resolve_mode 的 target-profile 信号）。
+    """
+    if not target_profile_exists(target_id):
+        return False
+    p = profile_path(target_id)
+    try:
+        with open(p, encoding="utf-8") as f:
+            txt = f.read()
+        if _CTF_PROFILE_RE.search(txt):
+            return False
+        with open(p, "a", encoding="utf-8") as f:
+            f.write("\n## 类型\n- kind: ctf\n")
+        return True
+    except Exception:
+        return False
 
 
 def resolve_recipe(target_id: str) -> dict:

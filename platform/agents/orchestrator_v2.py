@@ -300,10 +300,14 @@ async def _kb_brief(module: str) -> str:
 
 
 async def _run_child(module: str, target: str, task: str, task_id: str,
-                      intel_block: str, runtime: ModelRuntime,
-                      progress_cb=None, child_max_turns: int = CHILD_MAX_TURNS,
-                      shared_container: str = "", task_budget: int = 0) -> _ChildResult:
-    """跑一个模块子 agent：有界 mini-loop，带父 intel（pre-recon+recon 交付物）为背景。"""
+                       intel_block: str, runtime: ModelRuntime,
+                       progress_cb=None, child_max_turns: int = CHILD_MAX_TURNS,
+                       shared_container: str = "", task_budget: int = 0,
+                       stop_check=None) -> _ChildResult:
+    """跑一个模块子 agent：有界 mini-loop，带父 intel（pre-recon+recon 交付物）为背景。
+
+    stop_check: 可选回调，每次工具执行后调用；返回 truthy → 立即收口（CTF flag 早停用）。
+    """
     child = InhouseAgent(runtime=runtime)
     child.last_task_id = task_id  # 执行日志归属（llm/tool/steer 埋点用）
     child.MAX_TURNS = child_max_turns  # type: ignore
@@ -316,11 +320,15 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
     import re
     _task = re.sub(r"\n?FOCUS AREA: [^\n]*", "", task)
     _task = re.sub(r"Work ONLY within this focus area\.[^\n]*", "", _task)
-    _focus = (
-        f"=== YOUR ASSIGNED MODULE: {module} — WORK ONLY ON THIS ===\n"
-        f"You are the {module} specialist for {target}. Find and exploit ONLY the {module} vulnerability class. "
-        f"Work ONLY within the {module} area; ignore any other module mentioned below.\n"
-    )
+    if module == "objective":
+        # CTF/目标猎取：无类锁，猎手焦点块（异常驱动优先，见 _HUNTER_FOCUS）
+        _focus = _HUNTER_FOCUS
+    else:
+        _focus = (
+            f"=== YOUR ASSIGNED MODULE: {module} — WORK ONLY ON THIS ===\n"
+            f"You are the {module} specialist for {target}. Find and exploit ONLY the {module} vulnerability class. "
+            f"Work ONLY within the {module} area; ignore any other module mentioned below.\n"
+        )
     _base = f"{_focus}\n{_task}"
     _wd = (f"WORKDIR: your working directory is {child.workdir} — save downloads/artifacts there "
            f"(this sandbox is shared by sibling agents; do not clobber other modules' files). "
@@ -328,10 +336,12 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
     _base = f"{_base}\n\n{_wd}"
     if intel_block:
         content = f"{_base}\n\n{intel_block}\n\n{_coverage_brief(task_id)}"
-        kb = await _kb_brief(module)
-        if kb:
-            print(f"[orch:{task_id}] KB 通用技法强制注入 module={module}", flush=True)
-            content += f"\n\n{kb}"
+        if module != "objective":
+            # objective（CTF 猎手）不做类 KB 强制注入：档案 brief 是主力，kb_query 留给运行时自调
+            kb = await _kb_brief(module)
+            if kb:
+                print(f"[orch:{task_id}] KB 通用技法强制注入 module={module}", flush=True)
+                content += f"\n\n{kb}"
         child.messages[1] = {"role": "user", "content": content}
     else:
         child.messages[1] = {"role": "user", "content": _base}
@@ -401,6 +411,13 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
                                  "last_message": f"[exploit:{module}] turn={child.state.turn} tool={_tn}",
                                  "msg_count": child.state.turn})
             await child._exec_tool_calls(tcs_original, task_id, target, progress_cb=progress_cb)
+            if stop_check is not None:
+                try:
+                    if stop_check():
+                        print(f"[exploit:{module}] t={child.state.turn} 目标命中（flag 模式）→ 早停收口", flush=True)
+                        break
+                except Exception:
+                    pass
         else:
             child.messages.append({"role": "assistant", "content": msg.get("content") or ""})
             if _is_done(msg.get("content") or ""):
@@ -464,8 +481,68 @@ def _collect_findings(task_id: str) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# 主编排器：root LLM 决策 + 相位交付物
+# CTF/目标猎取模式（mode=ctf）：单 objective 猎手 + flag 早停
+# 设计: docs/CTF目标猎取模式-设计.md（xben-002 实测校准：异常驱动优先，批量循环为大空间保底）
 # ---------------------------------------------------------------------------
+
+def _ctf_flag_pattern():
+    """flag 匹配模式（PIMETA_CTF_FLAG_PATTERN 热读；配置坏时回退默认）。"""
+    pat = cfg_env("PIMETA_CTF_FLAG_PATTERN", r"flag\s*\{[^}\s]{4,}")
+    try:
+        return re.compile(pat, re.IGNORECASE)
+    except re.error:
+        return re.compile(r"flag\s*\{[^}\s]{4,}", re.IGNORECASE)
+
+
+def _flag_hit(task_id: str, before_ids: set) -> Optional[Dict[str, Any]]:
+    """第一条"新出现且 title/poc/evidence 匹配 flag 模式"的 finding（CTF 早停判据）。
+
+    只认 flag 模式匹配——旁证 finding（如默认凭据）不触发早停，
+    防"先找到旁证就假成功收口"（xben-002 R1 教训）。
+    """
+    pat = _ctf_flag_pattern()
+    for f in _collect_findings(task_id):
+        if f.get("id") in before_ids:
+            continue
+        blob = f"{f.get('title', '')} {f.get('poc', '')} {f.get('evidence', '')}"
+        if pat.search(blob):
+            return f
+    return None
+
+
+# objective 伪模块的猎手焦点块（替代类锁 "WORK ONLY ON THIS module"）。
+# 与 _run_child 的 task 文本拼接后作为 user 消息开头。
+_HUNTER_FOCUS = """=== OBJECTIVE HUNT MODE — you are the objective hunter ===
+Default question (ask this FIRST about every page/dataset you fetch):
+  "What data here is special? What data should NOT be shown to me?"
+  — Anomalous data (special names, content differing from template/filler, other users' data,
+    entries that don't fit the pattern) is the PRIMARY source of the objective, not a secondary clue.
+
+Search discipline (MANDATORY, in priority order):
+1. Anomaly-driven (PRIMARY): for every page you fetch, read the DATA ITSELF first
+   (tables, list rows, response bodies) — not just JS/params/status codes.
+   Anomaly signals: special naming (e.g. a row whose name/ticker is literally the objective keyword),
+   content differing from template/filler, encoded strings, 302 to an unfamiliar path,
+   other users' data (secondary use of any confirmed cross-user access),
+   hidden DOM fields (data-* attributes, HTML comments), list-vs-URL-space mismatch.
+   On spotting an anomaly, dig in immediately — do not wait for "better tooling".
+2. Breadcrumb chasing: follow every new token/link/data-* attribute/endpoint to the end —
+   indirect references (list/detail split, auth gates, data-order-id style DOM indirection)
+   are the common hiding place for the objective.
+3. Batch sweep (large object spaces ONLY): when no listing page exposes the full set and the
+   space is large (hundreds~thousands), write ONE bash loop to sweep systematically
+   (200~1000 per batch, continue in chunks) and grep for the objective pattern
+   (flag template / non-template content). Do NOT hand-try IDs one by one (sampling, not searching).
+   If a listing page already exposes the full set (e.g. 5 rows), fetching all of it IS the
+   systematic sweep — no loop needed.
+4. STOP ON HIT: once the objective is found → submit_finding (evidence = full raw response)
+   → print done. The task ends as soon as it is recorded.
+
+FORBIDDEN: drifting into vulnerability classes unrelated to the objective
+(touch sqli/xss only when they ARE the breadcrumb); re-verifying facts already confirmed above;
+hand-sampling in a large space without a loop; reading only structure (JS/status codes)
+without reading the data.
+"""
 
 class OrchestratorV2:
     """v2 多 agent 编排：root LLM 决策派活 + 相位交付物 + 并行子 agent。"""
@@ -488,6 +565,12 @@ class OrchestratorV2:
         task_budget = int(recipe.get("task_budget", int(cfg_env("HINSE_TASK_BUDGET", "1800"))))
         retry_delay = int(recipe.get("module_retry_delay", int(cfg_env("HINSE_MODULE_RETRY_DELAY", "60"))))
         modules = modules or _default_modules()
+        # CTF/目标猎取模式：单 objective 猎手，不做 OWASP 类 fan-out（判定在 app.resolve_mode，
+        # 经 task_params.mode 进 recipe；pentest=默认，行为零变化）
+        ctf_mode = str(recipe.get("mode") or "pentest") == "ctf"
+        if ctf_mode:
+            modules = ["objective"]
+            force_all = True
         resolved_runtime = runtime if isinstance(runtime, ResolvedRuntime) else None
         selected = resolved_runtime.runtime if resolved_runtime is not None else runtime
         runtime_id = resolved_runtime.runtime_id if resolved_runtime is not None else getattr(selected, "runtime_id", "")
@@ -496,6 +579,8 @@ class OrchestratorV2:
                     "findings": [], "error": "runtime required"}
         start = time.monotonic()
         before_ids = _finding_ids(task_id)
+        # CTF 早停判据：新 finding 匹配 flag 模式 → 立即收口（每次工具执行后查；旁证 finding 不触发）
+        stop_check = (lambda: _flag_hit(task_id, before_ids) is not None) if ctf_mode else None
         results: List[dict] = []
         intel_block = ""  # 累积情报：pre-recon + recon 交付物
         target_id = resolve_target_id(target, target_id)  # 归一化：IP/URL → 稳定 target_id（查 KB 用）
@@ -555,6 +640,14 @@ class OrchestratorV2:
                 self.live["root_decision"] = decision
                 results.append({"phase": "root-decide", "dispatch": [], "stop": True, "reason": "cancelled"})
                 emit("root-decide", "skip", "cancelled")
+            elif ctf_mode:
+                dispatch_modules = ["objective"]
+                decision = {"ok": True, "modules": dispatch_modules, "stop": False,
+                            "reason": "ctf-objective-hunt"}
+                self.live["root_decision"] = decision
+                results.append({"phase": "root-decide", "dispatch": dispatch_modules, "stop": False,
+                                "reason": "ctf-objective-hunt"})
+                emit("root-decide", "skip", "CTF 模式 → 单 objective 猎手（无类 fan-out）")
             elif force_all:
                 dispatch_modules = list(modules)
                 decision = {"ok": True, "modules": dispatch_modules, "stop": False, "reason": "force-all-modules"}
@@ -586,11 +679,13 @@ class OrchestratorV2:
                                                          child_max_turns=child_max_turns,
                                                          shared_container=shared_container,
                                                          task_budget=task_budget,
-                                                         module_retry_delay=retry_delay)
+                                                         module_retry_delay=retry_delay,
+                                                         stop_check=stop_check)
             results.append({"phase": "exploit", "ok": True, "children": exploit_res})
 
             # --- phase 4b: coverage 补测循环（派了却没 coverage 的 gap 模块 → 续派补测）---
-            max_gap_rounds = int(cfg_env("HINSE_COVERAGE_GAP_ROUNDS", "1"))
+            # CTF 模式关闭：类 gap 续派对目标猎取无意义（单猎手，gap 只会是 objective 自身）
+            max_gap_rounds = 0 if ctf_mode else int(cfg_env("HINSE_COVERAGE_GAP_ROUNDS", "1"))
             gap_round = 0
             while gap_round < max_gap_rounds:
                 if task_registry.is_cancelled(task_id):
@@ -616,6 +711,15 @@ class OrchestratorV2:
             summary = await self._phase_report(task_id, target, dispatch_modules, exploit_res)
             results.append({"phase": "report", "ok": True, "complete": summary.get("complete"),
                             "coverage_gaps": summary.get("coverage", {}).get("coverage_gaps", [])})
+
+            # CTF 模式：目标达成判定（新 finding 匹配 flag 模式）
+            objective_met = False
+            if ctf_mode:
+                _hit = _flag_hit(task_id, before_ids)
+                objective_met = _hit is not None
+                emit("objective", "met" if objective_met else "unmet",
+                     (f"flag 命中 → {str(_hit.get('title', ''))[:80]}" if _hit
+                      else "预算内未命中 flag"))
 
             assigned_modules: List[str] = []
             for phase in results:
@@ -668,6 +772,8 @@ class OrchestratorV2:
                 case_capture_error = str(exc)
             return {
                 "agent": "RedBee", "task_id": task_id, "target": target,
+                "mode": "ctf" if ctf_mode else "pentest",
+                "objective_met": objective_met,
                 "phases": results,
                 "elapsed": round(time.monotonic() - start, 1),
                 "findings": delta_findings,
@@ -841,12 +947,13 @@ class OrchestratorV2:
 
     # ---- phase 4: exploit 并行子 agent（modules 由 root 决策给出，已含 coverage 剪枝）----
     async def _phase_exploit(self, task, target, task_id, modules, intel_block,
-                               runtime: ModelRuntime, progress_cb,
-                               max_parallel: int = MAX_PARALLEL,
-                               child_max_turns: int = CHILD_MAX_TURNS,
-                               shared_container: str = "",
-                               task_budget: int = 1800,
-                               module_retry_delay: int = 60) -> List[dict]:
+                                runtime: ModelRuntime, progress_cb,
+                                max_parallel: int = MAX_PARALLEL,
+                                child_max_turns: int = CHILD_MAX_TURNS,
+                                shared_container: str = "",
+                                task_budget: int = 1800,
+                                module_retry_delay: int = 60,
+                                stop_check=None) -> List[dict]:
         sem = asyncio.Semaphore(max_parallel)
         if progress_cb:
             self.live["slots"] = {i: {"agent": "RedBee", "module": m, "state": "queued"}
@@ -865,7 +972,8 @@ class OrchestratorV2:
                 r = await _run_child(m, target, task, task_id, intel_block, runtime, progress_cb,
                                       child_max_turns=child_max_turns,
                                       shared_container=shared_container,
-                                      task_budget=task_budget)
+                                      task_budget=task_budget,
+                                      stop_check=stop_check)
                 # 死模块自动重试：LLM 全挂时冷却后整模块重派 1 次（治 2026-09-24 实测
                 # 7/18 模块因 all runtimes failed 直接蒸发）；其他错误不重试；delay=0 禁用
                 if (r.error and _is_llm_dead(r.error) and module_retry_delay > 0
@@ -882,7 +990,8 @@ class OrchestratorV2:
                         r = await _run_child(m, target, task, task_id, intel_block, runtime, progress_cb,
                                               child_max_turns=child_max_turns,
                                               shared_container=shared_container,
-                                              task_budget=task_budget)
+                                              task_budget=task_budget,
+                                              stop_check=stop_check)
                 if progress_cb:
                     if r.error and r.error != "cancelled":
                         # 模块失败可见：LLM 全挂/容器失败等原因不再静默 0 findings

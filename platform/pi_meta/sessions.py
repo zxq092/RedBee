@@ -38,6 +38,9 @@ def _connect():
         "session_id": "TEXT",
         # 原始任务文本（全局任务视图展示 + 重跑按钮原样重派）
         "task_text": "TEXT",
+        # 任务模式：pentest(默认 OWASP 类 fan-out) / ctf(目标猎取，单猎手+flag 早停)
+        "mode": "TEXT",
+        "mode_source": "TEXT",
     }
     existing = {row[1] for row in cur.execute("PRAGMA table_info(task_metadata)").fetchall()}
     for name, kind in runtime_columns.items():
@@ -172,7 +175,8 @@ def save_task_metadata(task_id: str, target: str = "", target_id: str = "", mode
                         status: str = "running", runtime_model: str = "", runtime_id: str = "",
                         degraded_from: str = "", degraded_chain: str = "",
                         runtime_error_code: str = "", runtime_error_summary: str = "",
-                        model_override: str = "", session_id: str = "", task_text: str = "") -> None:
+                        model_override: str = "", session_id: str = "", task_text: str = "",
+                        mode: str = "", mode_source: str = "") -> None:
     conn = _connect()
     cur = conn.cursor()
     now = utcnow()
@@ -180,8 +184,8 @@ def save_task_metadata(task_id: str, target: str = "", target_id: str = "", mode
     cur.execute("""INSERT INTO task_metadata
         (task_id,target,target_id,model,agents,assigned_modules,status,created_at,updated_at,
          runtime_model,runtime_id,degraded_from,degraded_chain,runtime_error_code,
-         runtime_error_summary,model_override,session_id,task_text)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         runtime_error_summary,model_override,session_id,task_text,mode,mode_source)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(task_id) DO UPDATE SET
         target=excluded.target, target_id=excluded.target_id, model=excluded.model,
         agents=excluded.agents, assigned_modules=excluded.assigned_modules,
@@ -189,13 +193,16 @@ def save_task_metadata(task_id: str, target: str = "", target_id: str = "", mode
         runtime_id=excluded.runtime_id, degraded_from=excluded.degraded_from,
         degraded_chain=excluded.degraded_chain, runtime_error_code=excluded.runtime_error_code,
         runtime_error_summary=excluded.runtime_error_summary, model_override=excluded.model_override,
+        mode=COALESCE(NULLIF(excluded.mode,''), task_metadata.mode),
+        mode_source=COALESCE(NULLIF(excluded.mode_source,''), task_metadata.mode_source),
         session_id=COALESCE(NULLIF(excluded.session_id,''), task_metadata.session_id),
         updated_at=excluded.updated_at""",
         (task_id, target, target_id, model,
          json.dumps(agents or [], ensure_ascii=False),
          json.dumps(assigned_modules or [], ensure_ascii=False), status, now, now,
          runtime_model, runtime_id, degraded_from, degraded_chain,
-         runtime_error_code, runtime_error_summary, model_override, session_id, task_text))
+         runtime_error_code, runtime_error_summary, model_override, session_id, task_text,
+         mode, mode_source))
     conn.commit()
     conn.close()
 
@@ -206,7 +213,8 @@ def get_task_metadata(task_id: str) -> Dict[str, Any]:
         row = conn.execute(
             "SELECT task_id,target,target_id,model,agents,assigned_modules,status,created_at,updated_at,"
             "runtime_model,runtime_id,degraded_from,degraded_chain,runtime_error_code,"
-            "runtime_error_summary,model_override,session_id,task_text FROM task_metadata WHERE task_id=?", (task_id,)).fetchone()
+            "runtime_error_summary,model_override,session_id,task_text,mode,mode_source "
+            "FROM task_metadata WHERE task_id=?", (task_id,)).fetchone()
     finally:
         conn.close()
     if not row:
@@ -225,7 +233,7 @@ def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:
     conn = _connect()
     cur = conn.cursor()
     q = ("SELECT task_id, session_id, target, target_id, model, status, created_at, updated_at, "
-         "agents, assigned_modules, runtime_error_summary, task_text FROM task_metadata")
+         "agents, assigned_modules, runtime_error_summary, task_text, mode FROM task_metadata")
     args: list = []
     if status:
         q += " WHERE status=?"

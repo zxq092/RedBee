@@ -85,7 +85,8 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
         [m for m in planned_modules if m in planner.MODULES], "running",
         runtime_model=runtime.runtime.model, runtime_id=runtime.runtime_id,
         degraded_from=runtime.degraded_from or "", degraded_chain=json.dumps(runtime.degraded_chain),
-        model_override="", session_id=session_id, task_text=task)
+        model_override="", session_id=session_id, task_text=task,
+        mode=(task_params or {}).get("mode", ""), mode_source=(task_params or {}).get("mode_source", ""))
 
     def emit(kind: str, detail: str) -> None:
         if on_event:

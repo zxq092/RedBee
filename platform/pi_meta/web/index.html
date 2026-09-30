@@ -77,6 +77,9 @@
   .rename-input { width:100%; font-size:12.5px; background:var(--bg); border:1px solid var(--accent);
                   border-radius:5px; color:var(--text); padding:2px 5px; outline:none; }
   aside footer { padding:10px 14px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
+  .sb-linkrow { padding:8px 14px 0; font-size:11px; }
+  .sb-linkrow a { color:var(--muted); text-decoration:none; }
+  .sb-linkrow a:hover { color:var(--accent); text-decoration:underline; }
 
   /* ---- 主区 ---- */
   main { flex:1; display:flex; flex-direction:column; min-width:0; }
@@ -130,6 +133,8 @@
   .status-pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
   .st-running{background:#2b4a2b;color:var(--green);} .st-done{background:#2b3a5f;color:var(--blue);}
   .st-error{background:var(--danger-bg);color:var(--danger-text);} .st-cancel{background:#3d3520;color:var(--yellow);}
+  .mode-badge{margin-left:6px;font-weight:500;background:#3a2b5f;color:#c9b3ff;}
+  .mode-badge.mode-pentest{background:#2b3a5f;color:var(--blue);}
   .st-found{background:var(--pill-bg);color:var(--muted);} .st-confirmed{background:#2b4a2b;color:var(--green);}
   .st-false_positive{background:var(--danger-bg);color:var(--danger-text);}
 
@@ -402,6 +407,7 @@
     <button class="tbtn" id="taskViewBtn" style="margin:0 12px 6px;padding:7px;width:calc(100% - 24px)"
             title="跨会话查看所有任务：按状态/目标/文本过滤；点行打开对应会话并定位任务记录；↻ 一键重跑" data-i18n="taskOverview" data-i18n-ti="taskOverviewTip">📋 任务总览</button>
     <div id="sessionList"></div>
+    <div class="sb-linkrow"><a href="https://github.com/zxq092/RedBee" target="_blank" rel="noopener" data-i18n="githubLink">⭐ GitHub · 开源地址</a></div>
     <footer data-i18n="loadingModels" id="modelFooter">加载模型…</footer>
   </aside>
 
@@ -603,6 +609,9 @@ const TRANS = {
   zh: {
     "docTitle": "渗透智能体 · 控制台",
     "brand": "渗透智能体",
+    "githubLink": "⭐ GitHub · 开源地址",
+    "modeCtf": "🎯 CTF",
+    "modePentest": "🛡 渗透",
     "newSess": "＋ 新建会话",
     "searchSess": "搜索会话…",
     "selectAll": "全选",
@@ -809,6 +818,9 @@ const TRANS = {
   en: {
     "docTitle": "RedBee · Pentest Console",
     "brand": "RedBee Console",
+    "githubLink": "⭐ GitHub · Open Source",
+    "modeCtf": "🎯 CTF",
+    "modePentest": "🛡 Pentest",
     "newSess": "+ New Session",
     "searchSess": "Search sessions…",
     "selectAll": "Select all",
@@ -1393,6 +1405,8 @@ async function renderTaskTable(){
     const stCls = t.status==='runtime_error'||t.status==='extraction_error'||t.status==='interrupted' ? 'error' : t.status;
     const tdSt = el('td');
     tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP()[t.status]||t.status));
+    if (t.mode==='ctf') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge', tr('modeCtf')), {title:'目标猎取模式（单猎手 + flag 早停）'}));
+    else if (t.mode==='pentest') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge mode-pentest', tr('modePentest')), {title:'渗透模式（OWASP 类 fan-out）'}));
     rowEl.appendChild(tdSt);
     // 目标 / 发现 / 模块
     rowEl.appendChild(el('td','', t.target || t.target_id || '-'));

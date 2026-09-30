@@ -241,6 +241,14 @@ async def run_task(payload: Request):
     if param_errs:
         print(f"[task:dispatch] params 剔除非法项: {param_errs}", flush=True)
 
+    # 模式判定：显式 params.mode > 任务文本目标信号 > 靶场档案 kind: ctf
+    # （ctf=目标猎取：单猎手无类锁 + flag 早停；pentest=默认 OWASP 类 fan-out）
+    from .target_profile import resolve_mode
+    mode, mode_source = resolve_mode(task, target_id, task_params.get("mode"))
+    task_params["mode"] = mode
+    task_params["mode_source"] = mode_source
+    print(f"[task:dispatch] mode={mode} (source={mode_source})", flush=True)
+
     if not sid:
         return JSONResponse({"error": "session_id required"}, status_code=400)
     # 一会话一任务（串行模型）：同会话已有 running 任务 → 拒绝，防双击派发/跨标签页并发
@@ -271,6 +279,8 @@ async def run_task(payload: Request):
         "agents": agents,
         "target": target,
         "params": task_params,
+        "mode": mode,
+        "mode_source": mode_source,
         "param_warnings": param_errs,
         "note": "已分发给自研 RedBee agent 后台执行",
     }
@@ -478,6 +488,12 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
             _p = _tp.build_target_profile(task_id, target, _tid)
             if _p:
                 print(f"[target-profile] task={task_id} 自动建档 {_p}", flush=True)
+            # CTF 目标达成（finding 含 flag）→ 档案标 kind: ctf（幂等；
+            # 下次只说"打 X"无 flag 措辞也自动 CTF 模式）
+            if (task_params or {}).get("mode") == "ctf":
+                from agents.orchestrator_v2 import _flag_hit
+                if _flag_hit(task_id, set()) and _tp.mark_profile_ctf(_tid):
+                    print(f"[target-profile] {_tid} 标记 kind: ctf（CTF 目标达成）", flush=True)
         except Exception as e:
             print(f"[target-profile] task={task_id} error: {type(e).__name__}: {e}", flush=True)
     # SSE 哨兵：通知 /stream 端点任务结束（成功/取消/异常路径统一）

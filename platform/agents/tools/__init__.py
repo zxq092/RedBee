@@ -641,7 +641,7 @@ async def tool_list_skills(category: str = "") -> Dict[str, Any]:
 _SKILL_ALIAS = {"sqli": "sql-injection", "xss": "xss", "auth": "authentication-jwt",
                  "upload": "insecure-file-uploads", "ssrf": "ssrf", "rce": "rce",
                  "lfi": "path-traversal-lfi-rfi", "csrf": "csrf", "idor": "idor",
-                 "llm": "llm-applications"}
+                 "llm": "llm-applications", "objective": "ctf-hunt"}
 
 # 护栏铁律：poc payload 绝不进 LLM context（DeepSeek-V4-Flash 对 SQLi 载荷硬 500）。
 # skill 含攻击载荷（UNION SELECT/SLEEP/LOAD_FILE/xp_cmdshell/绕过技巧等）会触发内容过滤 500。

@@ -396,3 +396,115 @@ def test_inhouse_candidate_promotion_uses_valid_governance_contract(tmp_path, mo
     # 不自动升 authoritative——见 auto_ingest.promote_inhouse_candidate 的 docstring
     assert promoted.status == "candidate"
     assert promoted.validation_status == "candidate"
+
+
+def _inhouse_entry(content: str, case_id: str, source_id: str, ev_id: str):
+    return KnowledgeEntry(
+        id=None, type="attack_primitive", title="t validation technique",
+        content=content, content_redacted=content,
+        tags=["auto-distilled", "inhouse"], scope="all", status="candidate",
+        verified=False, source_type="inhouse", source_id=source_id, source_flow=None,
+        case_id=case_id, distilled_from=case_id,
+        redacted_content_hash=hash_text(content), content_hash=hash_text(content),
+        actual_tool="http_request", validation_status="candidate",
+        sanitization_status="sanitized", data_quality_status="active",
+        case_evidence=[EvidenceRef(evidence_id=ev_id, evidence_hash=hash_text("ev"))],
+        provenance={"case_id": case_id, "source_task": source_id},
+    )
+
+
+def test_ingest_content_hash_dedup_keeps_single_row_and_latest_case(tmp_path, monkeypatch):
+    db_path = tmp_path / "redkb.db"
+    monkeypatch.setattr(store, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(store, "DB_PATH", str(db_path))
+    content = "Enumerate object identifiers and confirm horizontal access; retain only cross-user reads."
+    id_a = store.ingest(_inhouse_entry(content, "case-A", "task-A", "ev-a"))
+    id_b = store.ingest(_inhouse_entry(content, "case-B", "task-B", "ev-b"))
+    # 同内容 → 同一行，不新建
+    assert id_a == id_b
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0] == 1
+    case_id, source_id = conn.execute("SELECT case_id, source_id FROM knowledge").fetchone()
+    # case 引用只留最新的
+    assert (case_id, source_id) == ("case-B", "task-B")
+    evs = json.loads(conn.execute("SELECT case_evidence FROM knowledge").fetchone()[0])
+    # 证据引用取并集
+    assert {e["evidence_id"] for e in evs} == {"ev-a", "ev-b"}
+    prov = json.loads(conn.execute("SELECT provenance FROM knowledge").fetchone()[0])
+    assert prov["case_id"] == "case-B"
+    conn.close()
+
+
+def test_ingest_dedup_only_within_active_new_sources(tmp_path, monkeypatch):
+    db_path = tmp_path / "redkb.db"
+    monkeypatch.setattr(store, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(store, "DB_PATH", str(db_path))
+    content = "Test upload validation with controlled requests and retain demonstrated execution."
+    # legacy 来源不参与 inhouse 去重（不同 source_type 各自一行）
+    legacy = _inhouse_entry(content, "case-L", "task-L", "ev-l")
+    legacy.source_type = "legacy"
+    legacy.legacy_source = "llm-expert"
+    legacy.case_id = case_id_for("legacy", "task-L")
+    legacy.redacted_content_hash = hash_text(content)
+    legacy.content_hash = hash_text(content)
+    store.ingest(legacy)
+    inhouse_id = store.ingest(_inhouse_entry(content, "case-I", "task-I", "ev-i"))
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM knowledge").fetchone()[0] == 2
+    assert conn.execute("SELECT source_type FROM knowledge WHERE id=?", (inhouse_id,)).fetchone()[0] == "inhouse"
+    conn.close()
+
+
+def test_converge_inhouse_duplicates_merges_stats_and_keeps_authoritative(tmp_path, monkeypatch):
+    db_path = tmp_path / "redkb.db"
+    monkeypatch.setattr(store, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(store, "DB_PATH", str(db_path))
+    content = "Construct a cross-origin state-changing request and confirm the mutation applies."
+    ch = hash_text(content)
+    store._connect().close()
+    conn = sqlite3.connect(db_path)
+    conn.execute("SELECT * FROM knowledge").fetchall()  # trigger schema
+    cols = ("id", "type", "title", "content", "tags", "scope", "status", "verified", "source_type",
+            "source_id", "case_id", "redacted_content_hash", "content_hash", "actual_tool",
+            "validation_status", "sanitization_status", "data_quality_status", "usage_count",
+            "last_used", "provenance", "created_at", "updated_at")
+    base = (None, "attack_primitive", "csrf validation technique", content, None, "all", None, 0,
+            "inhouse", None, None, ch, ch, "http_request", "candidate", "sanitized", "active",
+            None, None, None, None, None)
+    rows = [
+        ("kb.dup.old", "candidate", "candidate", 3, "2026-09-20T01:00:00", "case-old", "task-old"),
+        ("kb.dup.auth", "authoritative", "verified", 7, "2026-09-25T01:00:00", "case-auth", "task-auth"),
+        ("kb.dup.new", "candidate", "candidate", 1, "2026-09-29T01:00:00", "case-new", "task-new"),
+    ]
+    for eid, status, validation, usage, ts, case_id, source_id in rows:
+        values = list(base)
+        values[0] = eid
+        values[6] = status
+        values[9] = source_id
+        values[10] = case_id
+        values[14] = validation
+        values[17] = usage
+        values[18] = ts if status != "authoritative" else "2026-09-25T02:00:00"
+        values[19] = json.dumps({"case_id": case_id, "source_task": source_id})
+        values[20] = ts
+        values[21] = ts
+        conn.execute(f"INSERT INTO knowledge ({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})", values)
+    conn.commit()
+    conn.close()
+    store._connect().close()
+
+    result = store.converge_inhouse_duplicates()
+    assert result["groups"] == 1
+    assert result["deleted_rows"] == 2
+
+    conn = sqlite3.connect(db_path)
+    kept = conn.execute("SELECT id, status, usage_count, case_id, source_id FROM knowledge").fetchall()
+    assert len(kept) == 1
+    eid, status, usage, case_id, source_id = kept[0]
+    # authoritative 存活；case 引用取组内最新；usage 求和 3+7+1
+    assert status == "authoritative"
+    assert usage == 11
+    assert (case_id, source_id) == ("case-new", "task-new")
+    # 被删行的 versions/governance 一并清理
+    assert conn.execute("SELECT COUNT(*) FROM knowledge_versions WHERE knowledge_id IN ('kb.dup.old','kb.dup.new')").fetchone()[0] == 0
+    conn.close()

@@ -572,6 +572,98 @@ def _actor_allowed(actor: str | None) -> bool:
     return actor_is_service(actor) or actor_is_admin(actor)
 
 
+def _merge_case_reference(cur: "sqlite3.Cursor", anchor_id: str, entry: KnowledgeEntry) -> None:
+    """重复内容命中已有条目时，把 case 引用/标签/证据引用/使用统计合并进该行。
+
+    只动引用与统计列，不碰 status/validation/governance——不会把已 authoritative 的
+    行降级回 candidate。provenance 取新条目（最新 case 引用）。"""
+    row = cur.execute(
+        "SELECT tags,case_evidence,usage_count,last_used FROM knowledge WHERE id=?", (anchor_id,)).fetchone()
+    tags = list(_parse_json(row[0], []) or [])
+    for t in (entry.tags or []):
+        if t not in tags:
+            tags.append(t)
+    evs = list(_parse_json(row[1], []) or [])
+    ev_ids = {str(e.get("evidence_id")) for e in evs if isinstance(e, dict)}
+    for e in (entry.case_evidence or []):
+        ref = e.model_dump() if hasattr(e, "model_dump") else (dict(e) if isinstance(e, dict) else e)
+        if isinstance(ref, dict) and str(ref.get("evidence_id")) not in ev_ids:
+            evs.append(ref)
+            ev_ids.add(str(ref.get("evidence_id")))
+    usage = int(row[2] or 0) + int(entry.usage_count or 0)
+    last_used = max((str(x) for x in (row[3], entry.last_used) if x), default=None)
+    cur.execute(
+        """UPDATE knowledge SET case_id=?, distilled_from=?, source_id=?, source_flow=?,
+           tags=?, case_evidence=?, usage_count=?, last_used=?, provenance=?, updated_at=?
+           WHERE id=?""",
+        (entry.case_id, entry.distilled_from or entry.case_id, entry.source_id, entry.source_flow,
+         _json(tags), _json(evs), usage, last_used, _json(entry.provenance), entry.updated_at, anchor_id),
+    )
+
+
+def converge_inhouse_duplicates() -> dict:
+    """收敛存量：inhouse 同 content_hash 的条目合并为一行（历史重复膨胀治理）。
+
+    存活规则：authoritative 优先 → verified 次之 → 同级取最新 created_at。
+    合并：usage_count 求和、last_used 取 max、tags/case_evidence 取并集，
+    case 引用(case_id/distilled_from/source_id/provenance)取组内最新任务。
+    删除：其余行 + 其 knowledge_versions + redkb_governance（审计日志保留）。
+    """
+    conn = _connect()
+    try:
+        with conn:
+            cur = conn.cursor()
+            groups = [r[0] for r in cur.execute(
+                "SELECT content_hash FROM knowledge WHERE source_type='inhouse' AND content_hash IS NOT NULL "
+                "GROUP BY content_hash HAVING COUNT(*) > 1").fetchall()]
+            deleted = 0
+            for ch in groups:
+                cols = ("id", "status", "validation_status", "created_at", "case_id", "distilled_from",
+                        "source_id", "tags", "case_evidence", "usage_count", "last_used", "provenance")
+                rows = [dict(zip(cols, r)) for r in cur.execute(
+                    f"SELECT {','.join(cols)} FROM knowledge WHERE source_type='inhouse' AND content_hash=? "
+                    "ORDER BY (status='authoritative') DESC, (validation_status='verified') DESC, "
+                    "created_at DESC, id", (ch,)).fetchall()]
+                if len(rows) < 2:
+                    continue
+                survivor, others = rows[0], rows[1:]
+                newest = max(others, key=lambda r: (str(r["created_at"] or ""), r["id"]))
+                s_tags = list(_parse_json(survivor["tags"], []) or [])
+                s_ev = list(_parse_json(survivor["case_evidence"], []) or [])
+                ev_ids = {str(e.get("evidence_id")) for e in s_ev if isinstance(e, dict)}
+                usage = int(survivor["usage_count"] or 0)
+                last_used = str(survivor["last_used"] or "")
+                for r in others:
+                    for t in (_parse_json(r["tags"], []) or []):
+                        if t not in s_tags:
+                            s_tags.append(t)
+                    for e in (_parse_json(r["case_evidence"], []) or []):
+                        if isinstance(e, dict) and str(e.get("evidence_id")) not in ev_ids:
+                            s_ev.append(e)
+                            ev_ids.add(str(e.get("evidence_id")))
+                    usage += int(r["usage_count"] or 0)
+                    if str(r["last_used"] or "") > last_used:
+                        last_used = str(r["last_used"] or "")
+                prov = dict(_parse_json(survivor["provenance"], {}) or {})
+                prov["case_id"] = newest["case_id"]
+                prov["source_task"] = newest["source_id"]
+                prov["merged_case_count"] = len(rows)
+                cur.execute(
+                    "UPDATE knowledge SET case_id=?, distilled_from=?, source_id=?, tags=?, case_evidence=?, "
+                    "usage_count=?, last_used=?, provenance=?, updated_at=? WHERE id=?",
+                    (newest["case_id"], newest["case_id"], newest["source_id"], _json(s_tags), _json(s_ev),
+                     usage, last_used or None, _json(prov), utcnow(), survivor["id"]),
+                )
+                for r in others:
+                    cur.execute("DELETE FROM knowledge WHERE id=?", (r["id"],))
+                    cur.execute("DELETE FROM knowledge_versions WHERE knowledge_id=?", (r["id"],))
+                    cur.execute("DELETE FROM redkb_governance WHERE knowledge_id=?", (r["id"],))
+                    deleted += 1
+            return {"groups": len(groups), "deleted_rows": deleted}
+    finally:
+        conn.close()
+
+
 def ingest(entry: KnowledgeEntry | dict[str, Any], trusted: bool = False, vec: Optional[bytes] = None) -> str:
     """入库。trusted=True 用于仓库内置的已策展种子(已过脱敏审计):
     跳过 sanitize 重审与状态降级,按原治理状态落库;vec 为预计算向量(批量场景)。"""
@@ -623,6 +715,19 @@ def ingest(entry: KnowledgeEntry | dict[str, Any], trusted: bool = False, vec: O
             existing = cur.fetchone()
             if existing and existing[1] == entry.redacted_content_hash:
                 return entry.id
+            # content_hash 级去重（同内容不建多行）：已有 active 的同内容条目时，只把
+            # case 引用/标签/证据引用/使用统计合并到该行（"相同内容只留最新 case 引用"），
+            # 治"同一通用技法每个任务重入库一次"导致的条目膨胀。
+            if existing is None and entry.content_hash and entry.source_type in NEW_SOURCE_TYPES:
+                anchor = cur.execute(
+                    "SELECT id FROM knowledge WHERE content_hash=? AND type=? AND scope=? AND source_type=? "
+                    "AND data_quality_status='active' AND COALESCE(disabled,0)=0 "
+                    "ORDER BY usage_count DESC, created_at ASC LIMIT 1",
+                    (entry.content_hash, entry.type, entry.scope, entry.source_type),
+                ).fetchone()
+                if anchor:
+                    _merge_case_reference(cur, anchor[0], entry)
+                    return anchor[0]
             current_version = int(existing[0]) if existing else 0
             if governance_status_for_entry(entry) != "active":
                 vec = None

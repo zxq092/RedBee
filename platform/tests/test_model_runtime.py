@@ -252,9 +252,16 @@ async def test_health_fallback_and_chat_retry_use_candidate_queue(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_health_fatal_auth_and_not_found_do_not_fallback(monkeypatch):
-    for status, code in ((401, "AUTH_ERROR"), (404, "NOT_FOUND")):
+async def test_health_fatal_hard_trips_and_fails_over(monkeypatch):
+    """健康探测 401/404 = 硬失败：熔断该模型、继续下一候选（ARTEX 语义，不再整链终止）。
+
+    全部候选都被 401/404 熔断时收口为 NO_RUNTIME。"""
+    from pi_meta.llm_breaker import get_breaker
+    for status in (401, 404):
         calls = 0
+        # 熔断状态在本测试的临时库中跨轮次持久：每轮先复位，验证"全新候选"语义
+        get_breaker().reset("first")
+        get_breaker().reset("second")
 
         def handler(request: httpx.Request) -> httpx.Response:
             nonlocal calls
@@ -271,9 +278,40 @@ async def test_health_fatal_auth_and_not_found_do_not_fallback(monkeypatch):
         )
         resolution = await resolve_runtime()
         assert not resolution.ok
-        assert resolution.error.code == code
+        assert resolution.error.code == "NO_RUNTIME"
         assert resolution.runtime is None
-    assert calls == 1
+        assert calls == 2  # 两个候选都探过（401/404 不再短路整链）
+
+
+@pytest.mark.asyncio
+async def test_health_401_on_primary_fails_over_to_healthy_secondary(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if str(request.url.host) == "first.test":
+            return httpx.Response(401, request=request)
+        return httpx.Response(200, json={"data": [{"id": "second"}]}, request=request)
+
+    monkeypatch.setenv("MODEL_PRIORITY", "first,second")
+    monkeypatch.setenv("MODEL_BASE_URL", "http://first.test/v1")
+    monkeypatch.setenv("MODEL_AUTH_REF", "FAKE_MODEL_KEY")
+    monkeypatch.setenv("FAKE_MODEL_KEY", "secret")
+    monkeypatch.setenv("MODEL_PROFILE_JSON", json.dumps({
+        "models": {
+            "first": {"base_url": "http://first.test/v1", "auth_ref": "FAKE_MODEL_KEY"},
+            "second": {"base_url": "http://second.test/v1", "auth_ref": "FAKE_MODEL_KEY"},
+        }
+    }))
+    monkeypatch.setattr("pi_meta.model_runtime.httpx.AsyncClient", mock_async_client(handler))
+
+    resolution = await resolve_runtime()
+    assert resolution.ok
+    assert resolution.runtime.runtime.model == "second"
+    assert resolution.runtime.degraded_from == "first"
+
+    from pi_meta.llm_breaker import get_breaker
+    assert not get_breaker().try_admit("first")[0]  # 首选已被硬熔断
 
 
 @pytest.mark.asyncio

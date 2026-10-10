@@ -44,6 +44,18 @@ def _conn() -> sqlite3.Connection:
     for col in ("confirmed_by", "confirmed_at"):
         if col not in cols:
             conn.execute(f"ALTER TABLE findings ADD COLUMN {col} TEXT")
+    # 单漏洞报告 + 复测（ARTEX reporter/retester 移植）：
+    # evidence_version 在 poc/evidence 被补全时 +1；report_evidence_version 落后于它
+    # 说明"证据变了报告还是旧的"，done 钩子会重写报告
+    for col, decl in (
+        ("report_md", "TEXT"),
+        ("evidence_version", "INTEGER NOT NULL DEFAULT 1"),
+        ("report_evidence_version", "INTEGER"),
+        ("retest_verdict", "TEXT"),
+        ("retest_at", "TEXT"),
+    ):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE findings ADD COLUMN {col} {decl}")
     conn.commit()
     return conn
 
@@ -68,10 +80,16 @@ def post(task_id: str, target: str, f: Dict[str, Any], found_by: str,
             "SELECT id FROM findings WHERE task_id=? AND dedup_key=?",
             (task_id, key)).fetchone()
         if existing:
+            old = conn.execute(
+                "SELECT poc, evidence FROM findings WHERE task_id=? AND dedup_key=?",
+                (task_id, key)).fetchone()
+            changed = ((poc and poc != (old["poc"] or ""))
+                       or (ev and ev != (old["evidence"] or "")))
             conn.execute(
                 "UPDATE findings SET poc=COALESCE(NULLIF(poc,''),?), "
-                "evidence=COALESCE(NULLIF(evidence,''),?) WHERE task_id=? AND dedup_key=?",
-                (poc, ev, task_id, key))
+                "evidence=COALESCE(NULLIF(evidence,''),?), "
+                "evidence_version=evidence_version+? WHERE task_id=? AND dedup_key=?",
+                (poc, ev, 1 if changed else 0, task_id, key))
             conn.commit()
             return None
         cur = conn.execute(
@@ -139,29 +157,30 @@ def mark(task_id: str, fid: int, status: str, confirmed_by: Optional[str] = None
     conn.close()
 
 
+_FINDING_COLS = ("id", "target", "vuln_class", "title", "location", "poc", "evidence",
+                 "severity", "status", "found_by", "confirmed_by", "created_at", "confirmed_at",
+                 "report_md", "evidence_version", "report_evidence_version",
+                 "retest_verdict", "retest_at")
+_FINDING_SELECT = ("SELECT id,target,vuln_class,title,location,poc,evidence,severity,status,"
+                   "found_by,confirmed_by,created_at,confirmed_at,report_md,evidence_version,"
+                   "report_evidence_version,retest_verdict,retest_at FROM findings")
+
+
 def get_finding(task_id: str, fid: int) -> Optional[Dict[str, Any]]:
     conn = _conn()
     try:
         row = conn.execute(
-            "SELECT id,target,vuln_class,title,location,poc,evidence,severity,status,"
-            "found_by,confirmed_by,created_at,confirmed_at FROM findings "
-            "WHERE task_id=? AND id=?", (task_id, fid)).fetchone()
+            _FINDING_SELECT + " WHERE task_id=? AND id=?", (task_id, fid)).fetchone()
     finally:
         conn.close()
     if not row:
         return None
-    cols = ["id", "target", "vuln_class", "title", "location", "poc", "evidence",
-            "severity", "status", "found_by", "confirmed_by", "created_at", "confirmed_at"]
-    return dict(zip(cols, row))
+    return dict(zip(_FINDING_COLS, row))
 
 
 def all_findings(task_id: str) -> List[Dict[str, Any]]:
     conn = _conn()
-    rows = conn.execute(
-        "SELECT id,target,vuln_class,title,location,poc,evidence,severity,status,"
-        "found_by,confirmed_by,created_at,confirmed_at FROM findings "
-        "WHERE task_id=? ORDER BY id", (task_id,)).fetchall()
+    rows = conn.execute(_FINDING_SELECT + " WHERE task_id=? ORDER BY id",
+                        (task_id,)).fetchall()
     conn.close()
-    cols = ["id", "target", "vuln_class", "title", "location", "poc", "evidence",
-            "severity", "status", "found_by", "confirmed_by", "created_at", "confirmed_at"]
-    return [dict(zip(cols, r)) for r in rows]
+    return [dict(zip(_FINDING_COLS, r)) for r in rows]

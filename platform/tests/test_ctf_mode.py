@@ -272,3 +272,113 @@ def test_build_exploit_prompt_pentest_unchanged():
     text = build_exploit_prompt("http://10.0.0.99", "打一下", "sqli")
     assert "FOCUS AREA: sqli" in text
     assert "Work ONLY within this focus area" in text
+
+
+# ---------- child 空转护栏：连续无工具调用（含空响应）即收口（xben-010 复盘：qwen 空响应 175s/轮空转）----------
+
+class _FakeChildState:
+    def __init__(self):
+        self.turn = 0
+        self.tool_calls = 0
+
+
+class _FakeChild:
+    """替身 InhouseAgent：_chat 按脚本返回，计数调用次数。"""
+    MAX_TURNS = 40
+
+    def __init__(self, runtime, script):
+        self.runtime = runtime
+        self._script = list(script)
+        self.chat_calls = 0
+        self.state = _FakeChildState()
+        self.messages = [{"role": "system", "content": "s"},
+                         {"role": "user", "content": "u"}]
+        self.container = "shared-test"
+        self._owns_container = False
+        self.last_task_id = ""
+        self.workdir = "/work/test"
+
+    def _build_initial_messages(self, *a, **kw):
+        pass
+
+    def _compact_messages(self):
+        pass
+
+    def _drain_notes(self):
+        pass
+
+    def _inject_budget_notice(self):
+        pass
+
+    async def _chat(self, messages, runtime=None):
+        self.chat_calls += 1
+        resp = self._script.pop(0) if self._script else {"content": ""}
+        if resp.get("tool_calls"):
+            self.state.tool_calls += 1
+        return resp
+
+    async def _exec_tool_calls(self, *a, **kw):
+        pass
+
+    async def _docker_run(self, target_path=""):
+        return "c-test"
+
+    async def _cleanup(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_run_child_empty_response_streak_breaks(pimeta_db, monkeypatch):
+    """连续空响应（无工具调用）2 轮即收口——不再空转到 max_turns。"""
+    import agents.orchestrator_v2 as ov2
+    script = [{"content": ""}] * 10  # 永远返回空
+    calls = {}
+
+    class _Counter(_FakeChild):
+        def __init__(self, runtime):
+            super().__init__(runtime, script)
+
+    def _factory(runtime):
+        c = _Counter(runtime)
+        calls["child"] = c
+        return c
+
+    monkeypatch.setattr(ov2, "InhouseAgent", _factory)
+    monkeypatch.setattr(ov2, "_collect_findings", lambda task_id: [])
+    monkeypatch.setattr(ov2, "_list_coverage", lambda task_id: [])
+
+    from types import SimpleNamespace
+    rt = SimpleNamespace(runtime_id="rt-test", model="m")
+    result = await ov2._run_child("objective", "http://10.0.0.99", "找到 flag",
+                                  "t-streak-1", "", rt, child_max_turns=40)
+    assert calls["child"].chat_calls == 2          # 2 轮空响应即停，不是 40 轮
+    assert result.module == "objective"
+
+
+@pytest.mark.asyncio
+async def test_run_child_tool_call_resets_streak(pimeta_db, monkeypatch):
+    """工具调用重置无工具计数：text, tool, text, text → 第 4 轮收口（前两轮空文本不累计）。"""
+    import agents.orchestrator_v2 as ov2
+    tool_resp = {"content": "probing", "tool_calls": [
+        {"function": {"name": "bash", "arguments": "{}"}}]}
+    script = [{"content": "a"}, tool_resp, {"content": "b"}, {"content": "c"}]
+    calls = {}
+
+    class _Counter(_FakeChild):
+        def __init__(self, runtime):
+            super().__init__(runtime, script)
+
+    def _factory(runtime):
+        c = _Counter(runtime)
+        calls["child"] = c
+        return c
+
+    monkeypatch.setattr(ov2, "InhouseAgent", _factory)
+    monkeypatch.setattr(ov2, "_collect_findings", lambda task_id: [])
+    monkeypatch.setattr(ov2, "_list_coverage", lambda task_id: [])
+
+    from types import SimpleNamespace
+    rt = SimpleNamespace(runtime_id="rt-test", model="m")
+    await ov2._run_child("objective", "http://10.0.0.99", "找到 flag",
+                         "t-streak-2", "", rt, child_max_turns=40)
+    assert calls["child"].chat_calls == 4          # 1(text) + 1(tool) + 2(连续文本) 收口

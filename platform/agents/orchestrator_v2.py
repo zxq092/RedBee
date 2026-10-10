@@ -359,7 +359,6 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
 
     deadline = time.monotonic() + float(task_budget or cfg_env("HINSE_TASK_BUDGET", "1800"))
     _no_tool_streak = 0
-    _last_content = ""
     child._current_module = module
     while child.state.tool_calls < child_max_turns and time.monotonic() < deadline:
         if task_registry.is_cancelled(task_id):
@@ -401,6 +400,7 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
             pass
         print(f"[exploit:{module}] t={child.state.turn} tools={[tc.get('function',{}).get('name') for tc in (tcs_original or [])]} text={(msg.get('content') or '')[:120]!r}", flush=True)
         if tcs_original:
+            _no_tool_streak = 0
             child.messages.append({"role": "assistant", "content": msg.get("content") or "",
                                    "tool_calls": [_tc_obj(tc) for tc in (tcs or [])]})
             if progress_cb:
@@ -422,15 +422,12 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
             child.messages.append({"role": "assistant", "content": msg.get("content") or ""})
             if _is_done(msg.get("content") or ""):
                 break
-            # 重复检测：连续 3 轮无 tool call 且内容相似（agent 卡死在完成态）→ 强制退出
-            _cur = (msg.get("content") or "").strip()
-            if _cur and _cur == _last_content:
-                _no_tool_streak += 1
-            else:
-                _no_tool_streak = 0
-            _last_content = _cur
-            if _no_tool_streak >= 3:
-                print(f"[exploit:{module}] t={child.state.turn} 重复卡死检测 → 强制退出", flush=True)
+            # 连续 2 轮无 tool call 即收口（ReAct 约定：无工具调用=最终答复；
+            # 空响应也算——曾实测 qwen 对特定 context 连续返回空内容、每轮 175s 空转，
+            # 旧逻辑要求"内容非空且重复"才计数，空转永不被发现，白烧到 max_turns）。
+            _no_tool_streak += 1
+            if _no_tool_streak >= 2:
+                print(f"[exploit:{module}] t={child.state.turn} 连续 {_no_tool_streak} 轮无工具调用 → 收口", flush=True)
                 break
 
     await child._cleanup()

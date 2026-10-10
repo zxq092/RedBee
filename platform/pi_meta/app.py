@@ -150,6 +150,43 @@ async def set_model_override(request: Request):
     }
 
 
+@app.get("/api/llm/breakers")
+async def api_llm_breakers():
+    """LLM 熔断器状态（硬失败即断/软失败 N 次断，冷却梯度，落库重启恢复）。"""
+    from .llm_breaker import get_breaker
+    return {"enabled": get_breaker().enabled(), "breakers": get_breaker().status()}
+
+
+@app.get("/api/llm/records")
+async def api_llm_records(limit: int = 30):
+    """LLM 原始字节录制列表（失败=请求体+原始响应，成功=精简；诊断端点发怪用）。"""
+    from . import llm_recorder
+    return {"records": llm_recorder.list_records(min(max(limit, 1), 200))}
+
+
+@app.get("/api/llm/records/{name}")
+async def api_llm_record(name: str):
+    """单条录制详情（完整请求体 + 原始响应字节）。"""
+    from . import llm_recorder
+    rec = llm_recorder.get_record(name)
+    if rec is None:
+        return JSONResponse({"error": "record not found"}, status_code=404)
+    return rec
+
+
+@app.post("/api/llm/breakers/{model}/reset")
+async def api_llm_breaker_reset(model: str, request: Request):
+    """手动复位某模型的熔断状态（key 修好/端点恢复后不用等冷却）。"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", model or ""):
+        return JSONResponse({"error": "invalid model name"}, status_code=400)
+    from .llm_breaker import get_breaker
+    get_breaker().reset(model)
+    return {"ok": True, "model": model, "breakers": get_breaker().status()}
+
+
 @app.get("/api/sessions")
 async def api_list_sessions():
     return sessions.list_sessions()
@@ -264,6 +301,12 @@ async def run_task(payload: Request):
     # Pi 网关: 把任务异步分发给真实 agent(不阻塞 Web 返回)
     task_id = _new_task_id()
     _LIVE_Q[task_id] = asyncio.Queue()
+    source = str(body.get("source") or "").strip()[:32]
+    operator = str(body.get("operator") or "").strip()[:64]
+    sessions.save_task_metadata(
+        task_id, target, target_id, "", agents, [], "running",
+        session_id=sid, task_text=task, mode=mode, mode_source=mode_source,
+        source=source, operator=operator)
     bg = asyncio.create_task(
         _run_real(agents, task, target, sid, task_id, target_id, task_params=task_params)
     )
@@ -496,6 +539,34 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
                     print(f"[target-profile] {_tid} 标记 kind: ctf（CTF 目标达成）", flush=True)
         except Exception as e:
             print(f"[target-profile] task={task_id} error: {type(e).__name__}: {e}", flush=True)
+    # 攻击链可视化：LLM 把工具时间线+findings 蒸馏成 node/edge 图（fire-and-forget，
+    # 0 finding 的任务也有侦察链；LLM 挂了静默，不影响任务返回）
+    try:
+        asyncio.create_task(_build_attack_chain_bg(task_id, target))
+    except Exception:
+        pass
+    # 单漏洞报告（ARTEX reporter 模式）：每条 finding 独立 LLM 通道写详细报告，
+    # 失败机械模板降级；证据版本落后才重写（幂等，fire-and-forget）
+    if total > 0 and not cancelled:
+        try:
+            asyncio.create_task(_build_finding_reports_bg(task_id))
+        except Exception:
+            pass
+    # 复测结算（ARTEX retester 模式）：本任务是复测任务时，按 dedup_key 匹配
+    # 回写三态判定（reproduced 升 confirmed / not_reproduced / inconclusive）
+    try:
+        from . import finding_report as _fr
+        _fr.settle_retests(task_id, final_status)
+    except Exception as e:
+        print(f"[retest] settle task={task_id} error: {e}", flush=True)
+    # 清理本任务的大工具输出落盘（只供任务内 query_tool_output 检索）
+    try:
+        from agents.executor import cleanup_task_tool_outputs
+        _n = cleanup_task_tool_outputs(task_id)
+        if _n:
+            print(f"[tool-outputs] task={task_id} 清理 {_n} 个大输出落盘文件", flush=True)
+    except Exception as e:
+        print(f"[tool-outputs] task={task_id} cleanup error: {e}", flush=True)
     # SSE 哨兵：通知 /stream 端点任务结束（成功/取消/异常路径统一）
     q = _LIVE_Q.get(task_id)
     if q is not None:
@@ -513,6 +584,24 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
     return {"agents": results, "aggregate": agg, "status": final_status}
 
 
+async def _build_attack_chain_bg(task_id: str, target: str):
+    """任务 done 后 fire-and-forget：生成攻击链图。失败静默（前端拿不到就显示未生成）。"""
+    try:
+        from . import attack_chain
+        await attack_chain.build_attack_chain(task_id, target)
+    except Exception as e:
+        print(f"[attack-chain] task={task_id} error: {type(e).__name__}: {e}", flush=True)
+
+
+async def _build_finding_reports_bg(task_id: str):
+    """任务 done 后 fire-and-forget：写单漏洞报告。失败静默（finding 无 report_md 而已）。"""
+    try:
+        from . import finding_report
+        await finding_report.write_finding_reports(task_id)
+    except Exception as e:
+        print(f"[finding-report] task={task_id} error: {type(e).__name__}: {e}", flush=True)
+
+
 async def _trigger_kb_ingest(task_id: str):
     """任务完成后自动回流：distill case → promote authoritative。失败不影响任务。"""
     try:
@@ -524,6 +613,18 @@ async def _trigger_kb_ingest(task_id: str):
             print(f"[kb-ingest] task={task_id} failed: {res.get('error')}", flush=True)
     except Exception as e:
         print(f"[kb-ingest] task={task_id} error: {type(e).__name__}: {e}", flush=True)
+
+
+@app.get("/api/task/{task_id}/attack-chain")
+async def task_attack_chain(task_id: str):
+    """攻击链图（任务 done 后 LLM 生成，落库）：nodes/edges/risk_score/summary。
+    未生成（LLM 挂/任务太旧/还在生成）→ status=building，前端显示占位。"""
+    from . import attack_chain
+    data = attack_chain.get_attack_chain(task_id)
+    if data is None:
+        return {"task_id": task_id, "status": "building"}
+    data["status"] = "ok"
+    return data
 
 
 @app.get("/api/task/{task_id}/board")
@@ -560,6 +661,70 @@ async def api_finding_status(task_id: str, fid: int, request: Request):
             status_code=400)
     board_mod.mark(task_id, fid, status, confirmed_by=str(body.get("confirmed_by") or "ui"))
     return {"ok": True, "task_id": task_id, "id": fid, "status": status}
+
+
+@app.get("/api/finding/{finding_id}")
+async def api_finding_detail(finding_id: int):
+    """单条 finding 详情（含单漏洞报告 report_md、复测判定 retest_verdict）。"""
+    from . import finding_report
+    f = finding_report.find_finding_any_task(finding_id)
+    if f is None:
+        return JSONResponse({"error": "finding not found"}, status_code=404)
+    return f
+
+
+@app.post("/api/finding/{finding_id}/retest")
+async def api_finding_retest(finding_id: int, request: Request):
+    """单漏洞复测（ARTEX retester）：派一个聚焦复测任务（单模块/短预算），
+    完成后 done 钩子按 dedup_key 匹配自动回写三态判定。一会话一任务，
+    原会话被占时 body 可传新 session_id。"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    from . import finding_report
+    f = finding_report.find_finding_any_task(finding_id)
+    if f is None:
+        return JSONResponse({"error": "finding not found"}, status_code=404)
+    if f["status"] == "false_positive":
+        return JSONResponse({"error": "finding 已标 false_positive，无可复测"}, status_code=400)
+    if f["status"] == "confirmed" and f.get("retest_verdict") == "reproduced":
+        return JSONResponse({"error": "该 finding 已由复测确认（reproduced）"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    meta = sessions.get_task_metadata(f["task_id"]) or {}
+    sid = str(body.get("session_id") or meta.get("session_id") or "")
+    if not sid:
+        return JSONResponse({"error": "原任务无 session，请在 body 传 session_id"}, status_code=400)
+    if sessions.has_running_task(sid):
+        return JSONResponse(
+            {"error": "该会话已有任务在运行，请等待完成或先停止（一会话一任务）；也可传新 session_id"},
+            status_code=409)
+    task_text = finding_report.retest_prompt(f)
+    task_params = {"max_modules": 1, "skip_recon": True, "child_max_turns": 25,
+                   "task_budget": 1500, "mode": "pentest"}
+    sessions.ensure_session(sid, title=f"复测: {f['title'][:30]}")
+    sessions.add_message(sid, "user", f"复测: {f['title']}  (原任务 {f['task_id']})")
+    task_id = _new_task_id()
+    _LIVE_Q[task_id] = asyncio.Queue()
+    sessions.save_task_metadata(
+        task_id, f["target"], meta.get("target_id", ""), "", ["RedBee"], [], "running",
+        session_id=sid, task_text=task_text, mode="pentest",
+        source=str(body.get("source") or "").strip()[:32],
+        operator=str(body.get("operator") or "").strip()[:64])
+    bg = asyncio.create_task(
+        _run_real(["RedBee"], task_text, f["target"], sid, task_id,
+                  meta.get("target_id", ""), task_params=task_params))
+    _BG_TASKS[task_id] = bg
+    task_registry.register(task_id, bg)
+    finding_report.record_retest(finding_id, task_id)
+    task_logs.log(task_id, "dispatch",
+                  f"retest of finding {finding_id} (origin {f['task_id']}) target={f['target']}")
+    return {"ok": True, "retest_task_id": task_id, "finding_id": finding_id,
+            "original_task_id": f["task_id"]}
 
 
 def _report_payload(task_id: str):
@@ -743,6 +908,128 @@ async def task_message(task_id: str, request: Request):
             f"[指令] 已注入 {n} 个运行中 agent{scope_tag}（下一轮生效）" if n
             else f"[指令] 已收到{scope_tag}（当前相位间隙无运行中 agent，将在下一批子 agent 自动注入）")
     return {"ok": True, "injected": n}
+
+
+@app.post("/api/task/{task_id}/btw")
+async def task_btw(task_id: str, request: Request):
+    """旁路提问（/btw，借 ARTEX）：向运行中 agent"顺口问一句"，不打断主循环。
+
+    body: {"question": "...", "module"?: "sqli"}
+      不可变上下文快照 + 单次**无工具** LLM 补全；不写 agent 的 messages/state。
+      module 省略 → 问上下文最大的运行中 agent；指定 → 问该模块专员。"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    question = str((body or {}).get("question", "")).strip()
+    if not question:
+        return JSONResponse({"error": "question required"}, status_code=400)
+    bg = _BG_TASKS.get(task_id)
+    if bg is None or bg.done():
+        return JSONResponse({"error": "task not running"}, status_code=404)
+    module = str((body or {}).get("module", "") or "").strip() or None
+    from . import btw
+    result = await btw.answer(task_id, question, module)
+    task_logs.log(task_id, "btw", f"旁路提问 module={module or '-'}: {question[:160]}")
+    meta = sessions.get_task_metadata(task_id) or {}
+    sid = meta.get("session_id", "")
+    if sid:
+        sessions.add_message(sid, "user", f"[btw] {question}")
+        if result.get("ok"):
+            sessions.add_message(sid, "assistant", f"[btw 回答] {result.get('answer', '')}")
+        else:
+            sessions.add_message(sid, "assistant", f"[btw 失败] {result.get('error', '')}")
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=502 if "timed out" in result.get("error", "") else 409)
+    return result
+
+
+# ---------------------------------------------------------------- 安全管控（intercept）
+@app.get("/api/intercept/rules")
+async def api_intercept_rules():
+    """拦截规则列表（DB 可配，热加载；改完立即生效不用重启）。"""
+    from agents import intercept
+    return {"rules": intercept.list_rules(),
+            "scan_tools": sorted(intercept._scan_tools()),
+            "enabled": intercept._enabled()}
+
+
+@app.post("/api/intercept/rules")
+async def api_intercept_rule_upsert(request: Request):
+    """新增/更新拦截规则。body: {name, pattern, action: deny|ask|allow, priority?, enabled?, message?, id?}"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    from agents import intercept
+    try:
+        rid = intercept.upsert_rule(
+            rule_id=int(body["id"]) if body.get("id") else None,
+            name=str(body.get("name", "")),
+            pattern=str(body.get("pattern", "")),
+            action=str(body.get("action", "deny")),
+            priority=int(body.get("priority", 50)),
+            enabled=bool(body.get("enabled", True)),
+            message=str(body.get("message", "")),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if not rid:
+        return JSONResponse({"error": "rule not found"}, status_code=404)
+    return {"ok": True, "id": rid}
+
+
+@app.delete("/api/intercept/rules/{rule_id}")
+async def api_intercept_rule_delete(rule_id: int, request: Request):
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    from agents import intercept
+    if not intercept.delete_rule(rule_id):
+        return JSONResponse({"error": "rule not found"}, status_code=404)
+    return {"ok": True, "id": rule_id}
+
+
+@app.get("/api/intercept/pending")
+async def api_intercept_pending(task_id: str = ""):
+    """等待人工审批的命令队列（ask 规则命中后阻塞在这里，decide 后放行/拒绝）。"""
+    from agents import intercept
+    return {"pending": intercept.list_pending(task_id or None)}
+
+
+@app.post("/api/intercept/{decision_id}/decide")
+async def api_intercept_decide(decision_id: int, request: Request):
+    """人工裁决审批中的命令。body: {"action": "allow"|"deny", "note"?: "..."}"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    from agents import intercept
+    try:
+        result = intercept.decide_decision(
+            decision_id, str((body or {}).get("action", "")),
+            str((body or {}).get("note", "")))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if result is None:
+        return JSONResponse({"error": "decision not found"}, status_code=404)
+    return {"ok": True, **result}
+
+
+@app.get("/api/intercept/history")
+async def api_intercept_history(task_id: str = "", limit: int = 50):
+    """拦截/审批审计历史（deny 命中 + 人工裁决结果）。"""
+    from agents import intercept
+    return {"history": intercept.list_history(min(max(limit, 1), 500), task_id or None)}
 
 
 @app.get("/healthz")

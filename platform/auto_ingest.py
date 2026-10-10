@@ -66,6 +66,12 @@ def _technique_from_vuln_class(vc: str) -> str:
         return "xss"
     if "ssrf" in t or "server side request" in t:
         return "ssrf"
+    if "template injection" in t or "ssti" in t:
+        return "ssti"
+    if "deserialization" in t or "unserialize" in t or "phar" in t:
+        return "deserialization"
+    if "ognl" in t or "expression language" in t or "spel" in t:
+        return "rce"
     if "command injection" in t or "cmdi" in t:
         return "cmdi"
     if "local file inclusion" in t or "path traversal" in t or "lfi" in t:
@@ -74,7 +80,7 @@ def _technique_from_vuln_class(vc: str) -> str:
         return "rfi"
     if "upload" in t:
         return "upload"
-    if "idor" in t or "bola" in t or "direct object" in t:
+    if "idor" in t or "bola" in t or "direct object" in t or "access control" in t or "access_control" in t:
         return "idor"
     if "csrf" in t or "cross-site request" in t:
         return "csrf"
@@ -88,6 +94,25 @@ def _technique_from_vuln_class(vc: str) -> str:
             or "login" in t or "credential" in t or "password" in t):
         return "auth"
     return "other"
+
+
+_TECH_ZH_ALIAS = {
+    "sqli": ["sql注入", "注入", "sql injection"],
+    "xss": ["跨站脚本", "cross site scripting"],
+    "upload": ["文件上传", "file upload", "webshell"],
+    "cmdi": ["命令注入", "命令注入 反弹shell", "command injection", "os command"],
+    "lfi": ["文件包含", "path traversal", "file inclusion", "local file inclusion"],
+    "rfi": ["远程包含", "remote file inclusion"],
+    "ssrf": ["服务器请求伪造", "server side request forgery"],
+    "csrf": ["跨站请求伪造", "cross site request forgery"],
+    "idor": ["越权", "direct object reference", "broken access control", "bola"],
+    "auth": ["认证", "鉴权", "authentication", "brute force"],
+    "misconfig": ["配置错误", "security misconfiguration", "information disclosure"],
+    "rce": ["远程代码执行", "remote code execution", "code execution"],
+    "ssti": ["服务端模板注入", "server side template injection", "template injection"],
+    "deserialization": ["反序列化", "insecure deserialization", "phar deserialization"],
+    "other": ["通用"],
+}
 
 
 def _technique_content(technique: str) -> str:
@@ -104,6 +129,8 @@ def _technique_content(technique: str) -> str:
         "csrf": "Construct a cross-origin state-changing request against a session-bearing endpoint lacking a token or origin check and confirm the mutation applies; retain only demonstrated state change.",
         "misconfig": "Enumerate default, debug, or exposed assets and default credentials and confirm information disclosure or unauthorized access; retain only confirmed exposure with evidence.",
         "rce": "Drive a code-execution path with a controlled benign command and confirm execution via a unique out-of-band marker; retain only demonstrated execution.",
+        "ssti": "Inject a controlled template expression and confirm server-side evaluation; retain only verified rendered output or controlled execution evidence.",
+        "deserialization": "Craft a controlled serialized object or archive metadata to trigger magic-method/gadget execution and confirm with unique output; retain only verified deserialization impact.",
         "other": "Use a bounded deterministic validation request and retain only reproducible, evidence-backed results.",
     }.get(technique, "Use a bounded deterministic validation request and retain only reproducible, evidence-backed results.")
 
@@ -165,7 +192,7 @@ def distill_inhouse_case(case: dict, evidence_id: str | None = None,
         title=candidate.title,
         content=content_redacted,
         content_redacted=content_redacted,
-        tags=[technique, "auto-distilled", "inhouse"],
+        tags=[technique, *_TECH_ZH_ALIAS.get(technique, []), "auto-distilled", "inhouse"],
         scope="all",
         status="candidate",
         verified=False,
@@ -207,7 +234,7 @@ def promote_inhouse_candidate(candidate: "Candidate") -> "KnowledgeEntry":
         title=candidate.title,
         content=candidate.content_redacted,
         content_redacted=candidate.content_redacted,
-        tags=[candidate.technique, "auto-distilled", "inhouse"],
+        tags=[candidate.technique, *_TECH_ZH_ALIAS.get(candidate.technique, []), "auto-distilled", "inhouse"],
         scope="all",
         status="candidate",
         verified=False,
@@ -518,7 +545,7 @@ def _scan_and_promote_candidates():
             tags = []
         if not tags:
             continue
-        technique = next((t for t in tags if t in ("sqli","xss","auth","upload","ssrf","cmdi","lfi","rfi","idor","csrf","misconfig","rce")), None)
+        technique = next((t for t in tags if t in ("sqli","xss","auth","upload","ssrf","cmdi","lfi","rfi","idor","csrf","misconfig","rce","ssti","deserialization")), None)
         if not technique:
             continue
         findings = _load_findings(source_id) if source_id else []

@@ -9,7 +9,8 @@ from __future__ import annotations
 import threading
 from typing import Any, Dict, List
 
-from .sessions import _connect, utcnow
+from . import sessions
+from .sessions import utcnow
 
 _SCHEMA = """CREATE TABLE IF NOT EXISTS task_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,21 +22,22 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS task_logs (
 )"""
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_task_logs_task ON task_logs(task_id, id)"
 
-# 表只建一次（进程内幂等）
-_ensured = False
+# 表按 DB 路径建一次（进程内幂等；⚠️ 用调用时属性查找 sessions.DB_PATH——
+# 测试里 conftest 把它换成 per-test 临时库，import 期绑定会跨测试误判"已建表"）
+_ensured_for = None
 _lock = threading.Lock()
 
 
 def _conn():
-    global _ensured
-    conn = _connect()
-    if not _ensured:
+    global _ensured_for
+    conn = sessions._connect()
+    if _ensured_for != sessions.DB_PATH:
         with _lock:
-            if not _ensured:
+            if _ensured_for != sessions.DB_PATH:
                 conn.execute(_SCHEMA)
                 conn.execute(_INDEX)
                 conn.commit()
-                _ensured = True
+                _ensured_for = sessions.DB_PATH
     return conn
 
 

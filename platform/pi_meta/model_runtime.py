@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -12,14 +13,16 @@ from urllib.parse import urlparse
 
 import httpx
 
+import config
 from config import (
     AuthConfigError,
     ConfigError,
     model_runtime_config as config_model_runtime_config,
     resolve_auth_value,
     validate_trusted_override,
-    env as _cfg_env,
 )
+from .llm_breaker import get_breaker
+from .llm_recorder import record_call as _llm_record
 
 _MODEL_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _AUTH_REF_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -217,10 +220,17 @@ class RuntimeResolver:
         degraded_chain: List[str] = []
         selected_index: Optional[int] = None
         selected_runtime: Optional[ModelRuntime] = None
+        breaker = get_breaker()
         for index, candidate in enumerate(candidates):
             degraded_chain.append(candidate.model)
+            # 熔断器冷却中：直接跳过，不浪费探测往返
+            if not breaker.try_admit(candidate.model)[0]:
+                if degraded_from is None:
+                    degraded_from = candidate.model
+                continue
             probe_status, probe_error_code, probe_error = await self._probe(candidate)
             if probe_status == "healthy":
+                breaker.record_success(candidate.model)
                 available.append(index)
                 if selected_index is None:
                     selected_index = index
@@ -228,8 +238,12 @@ class RuntimeResolver:
                 continue
             if degraded_from is None:
                 degraded_from = candidate.model
-            if probe_error_code in {"AUTH_CONFIG_ERROR", "AUTH_ERROR", "NOT_FOUND"}:
+            if probe_error_code == "AUTH_CONFIG_ERROR":
+                # 配置级错误（key 未配置等）：立即报错，不降级不熔断
                 return RuntimeResolution(ok=False, runtime=None, error=probe_error)
+            # AUTH_ERROR/NOT_FOUND=硬失败、429/5xx/超时/网络=软失败：记入熔断器，
+            # 继续尝试下一个候选（ARTEX 语义：不再一次 fatal 就整链终止）
+            breaker.record_failure(candidate.model, None, probe_error_code or "")
         if selected_runtime is None:
             model = candidates[0].model if candidates else None
             return RuntimeResolution(
@@ -319,7 +333,8 @@ class _LLMConcurrencyGate:
     @staticmethod
     def _limit() -> int:
         try:
-            return max(1, int(_cfg_env("PIMETA_GLOBAL_MAX_LLM_CONCURRENCY", "4")))
+            # 调用时属性查找（config.env 热加载；测试中 conftest 对该属性打桩）
+            return max(1, int(config.env("PIMETA_GLOBAL_MAX_LLM_CONCURRENCY", "4")))
         except (TypeError, ValueError):
             return 4
 
@@ -351,15 +366,21 @@ class RuntimeClient:
     async def chat(resolved: ResolvedRuntime, payload: Dict[str, Any]) -> ChatResult:
         if not isinstance(resolved, ResolvedRuntime):
             return ChatResult(False, "", [], "", [], _error("TYPE_ERROR", "chat", None, "RuntimeClient.chat requires ResolvedRuntime"))
+        breaker = get_breaker()
         candidates = [resolved.candidate_runtimes[index] for index in resolved.available_indices]
         if not candidates:
             return ChatResult(False, "", [], resolved.runtime_id, [], _error("NO_RUNTIME", "chat", None, "no available runtime"))
+        if breaker.enabled():
+            admitted = [c for c in candidates if breaker.try_admit(c.model)[0]]
+            # 全灭兜底：全部冷却中仍打链首（half-open 试探，防冷却数据过期把平台锁死）
+            candidates = admitted or [candidates[0]]
         payload = dict(payload)
         attempted: List[str] = []
         degraded_chain = list(resolved.degraded_chain)
         for candidate in candidates:
             attempted.append(candidate.model)
             last_error: Optional[ModelRuntimeError] = None
+            breaker_done = False
             for attempt in range(_MAX_CHAT_RETRIES + 1):
                 try:
                     auth_value = resolve_auth_value(candidate.auth_ref)
@@ -367,6 +388,7 @@ class RuntimeClient:
                     return ChatResult(False, "", [], resolved.runtime_id, degraded_chain, _error("AUTH_CONFIG_ERROR", "chat", candidate.model, str(exc)))
                 payload["model"] = candidate.model
                 timeout = httpx.Timeout(candidate.timeout, connect=10.0, read=candidate.read_timeout)
+                _t0 = time.monotonic()
                 try:
                     async with _llm_gate:
                         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -375,7 +397,15 @@ class RuntimeClient:
                                 json=payload,
                                 headers={"Authorization": f"Bearer {auth_value}"},
                             )
+                    _elapsed_ms = (time.monotonic() - _t0) * 1000
+                    _host = urlparse(candidate.base_url).netloc
                     if response.status_code == 200:
+                        # 原始字节录制：成功精简 / 失败全量（含响应原始字节，治"端点发怪没现场"）
+                        _llm_record(model=candidate.model, host=_host, status=200,
+                                    elapsed_ms=_elapsed_ms, payload=payload,
+                                    response_text=response.text, result="ok", is_success=True)
+                        # 端点活着：无论解析成败都记成功（坏 JSON 是输出质量不是可用性问题）
+                        breaker.record_success(candidate.model)
                         try:
                             document = response.json()
                             choices = document.get("choices")
@@ -387,6 +417,20 @@ class RuntimeClient:
                             return ChatResult(True, str(content or ""), tool_calls, resolved.runtime_id, degraded_chain, None)
                         except (ValueError, AttributeError, TypeError) as exc:
                             return ChatResult(False, "", [], resolved.runtime_id, degraded_chain, _error("PARSE_ERROR", "parse", candidate.model, "invalid chat completion response"))
+                    # 非 200：全量录制（请求体 + 原始响应字节），每个 attempt 都录
+                    _llm_record(model=candidate.model, host=_host, status=response.status_code,
+                                elapsed_ms=_elapsed_ms, payload=payload,
+                                response_text=response.text,
+                                result=f"HTTP_{response.status_code}", is_success=False)
+                    if response.status_code in (401, 402, 403, 404):
+                        # 硬失败（认证/余额/端点不存在）：立即熔断该模型并降级到下一个候选
+                        # （旧行为是一次 401/404 就整链终止，首选 key 死亡后无退路）
+                        breaker.record_failure(candidate.model, response.status_code, "")
+                        breaker_done = True
+                        code = "NOT_FOUND" if response.status_code == 404 else (
+                            "CREDIT_EXHAUSTED" if response.status_code == 402 else "AUTH_ERROR")
+                        last_error = _error(code, "chat", candidate.model, f"chat returned HTTP {response.status_code}")
+                        break
                     if response.status_code == 429 or 500 <= response.status_code < 600:
                         if attempt < _MAX_CHAT_RETRIES:
                             last_error = _error("RATE_LIMIT" if response.status_code == 429 else "SERVER_ERROR", "chat", candidate.model, f"chat returned HTTP {response.status_code}")
@@ -394,24 +438,29 @@ class RuntimeClient:
                             continue
                         last_error = _error("RATE_LIMIT" if response.status_code == 429 else "SERVER_ERROR", "chat", candidate.model, f"chat returned HTTP {response.status_code}")
                         break
-                    if response.status_code == 401:
-                        return ChatResult(False, "", [], resolved.runtime_id, degraded_chain, _error("AUTH_ERROR", "chat", candidate.model, "chat authentication rejected"))
-                    if response.status_code == 404:
-                        return ChatResult(False, "", [], resolved.runtime_id, degraded_chain, _error("NOT_FOUND", "chat", candidate.model, "chat endpoint not found"))
                     last_error = _error(f"HTTP_{response.status_code}", "chat", candidate.model, f"chat returned HTTP {response.status_code}")
                     break
                 except (asyncio.TimeoutError, httpx.TimeoutException):
+                    _llm_record(model=candidate.model, host=urlparse(candidate.base_url).netloc,
+                                status=None, elapsed_ms=(time.monotonic() - _t0) * 1000,
+                                payload=payload, response_text=None, result="TIMEOUT", is_success=False)
                     last_error = _error("TIMEOUT", "chat", candidate.model, "chat timed out")
                     if attempt < _MAX_CHAT_RETRIES:
                         await asyncio.sleep(0.05 * (attempt + 1))
                         continue
                     break
                 except httpx.TransportError:
+                    _llm_record(model=candidate.model, host=urlparse(candidate.base_url).netloc,
+                                status=None, elapsed_ms=(time.monotonic() - _t0) * 1000,
+                                payload=payload, response_text=None, result="NETWORK_ERROR", is_success=False)
                     last_error = _error("NETWORK_ERROR", "chat", candidate.model, "chat transport failure")
                     if attempt < _MAX_CHAT_RETRIES:
                         await asyncio.sleep(0.05 * (attempt + 1))
                         continue
                     break
+            if last_error is not None and not breaker_done:
+                # 软失败重试耗尽：记一次（按错误码分类，HTTP_4xx 等无关码不动熔断状态）
+                breaker.record_failure(candidate.model, None, last_error.code)
             degraded_chain.extend(model for model in [candidate.model] if model not in degraded_chain)
         return ChatResult(False, "", [], resolved.runtime_id, degraded_chain, _error("NO_RUNTIME", "chat", None, "all available model runtimes failed"))
 

@@ -701,6 +701,21 @@ def get_skill_content(name: str) -> str:
                 pass
     return _strip_payload_lines(PLAYBOOKS.get(name, ""))
 
+
+def resolve_skill_name(name: str) -> Optional[str]:
+    """归一 skill 名（别名 + dash/underscore）→ 真实存在的 skill 名；不存在返回 None。
+    供工具门控（skill-gated tools）把 module/skill 名映射到解锁键。"""
+    name = (name or "").strip()
+    if not name:
+        return None
+    name = _SKILL_ALIAS.get(name, name)
+    for cand in (name, name.replace("_", "-"), name.replace("-", "_")):
+        if cand in _SKILLS_PATH:
+            return cand
+    if name in PLAYBOOKS:
+        return name
+    return None
+
 # ---------------------------------------------------------------------------
 # 6. Web（web_get_contents；web_search/sploitus 已删=外网不可用）
 # ---------------------------------------------------------------------------
@@ -793,13 +808,47 @@ async def tool_browser(url: str = "", action: str = "navigate",
     except Exception as e:
         return {"action": action, "error": str(e)[:500]}
 
-@tool("nmap", "Port scan a target with nmap (host, fast by default). ports optional.",
-      {"type": "object", "properties": {"target": {"type": "string"}, "ports": {"type": "string"}}},
+def _sanitize_extra_args(raw: str, max_tokens: int = 12) -> tuple:
+    """extra_args 逃生舱校验（借 CyberStrikeAI tools/*.yaml 的 positional additional_args 模式，
+    但比它严）：shlex.split 后逐 token 禁 shell 元字符，拼接时再 shlex.quote 双保险。
+    返回 (tokens, error)。"""
+    if not raw or not raw.strip():
+        return [], ""
+    if len(raw.strip()) > 500:
+        return [], "extra_args too long (max 500 chars)"
+    try:
+        toks = shlex.split(raw.strip())
+    except ValueError as e:
+        return [], f"extra_args not parseable: {e}"
+    if len(toks) > max_tokens:
+        return [], f"extra_args too many tokens ({len(toks)}, max {max_tokens})"
+    for t in toks:
+        if not t or len(t) > 120:
+            return [], "extra_args token empty or too long (>120 chars)"
+        if re.search(r"[;&|<>()$`\\\"'\n]", t):
+            return [], (f"extra_args token {t!r} contains forbidden shell metacharacters — "
+                        "only plain CLI flags and their values are allowed (e.g. '--dbs', '--tamper space2comment')")
+    return toks, ""
+
+
+def _quote_extra(toks: list) -> str:
+    return " ".join(shlex.quote(t) for t in toks) if toks else ""
+
+
+@tool("nmap", "Port scan a target with nmap (host, fast by default). ports optional. "
+               "extra_args: additional nmap flags (e.g. '-A', '-sC', '--script vuln', '-Pn').",
+      {"type": "object", "properties": {"target": {"type": "string"}, "ports": {"type": "string"},
+         "extra_args": {"type": "string", "default": "",
+                        "description": "optional extra nmap flags appended to the command, space-separated; no shell metacharacters"}}},
       "inhouse")
-async def tool_nmap(target: str, ports: str = "") -> Dict[str, Any]:
+async def tool_nmap(target: str, ports: str = "", extra_args: str = "") -> Dict[str, Any]:
     # nmap 强制宿主机执行（部分 Kali 镜像容器内 EPERM 损坏；宿主执行行为一致更稳）
     # 默认快速（top 100 端口 + 版本），避免 -p 1-1000 全扫超时返回空
-    cmd = f"nmap -sV -p {ports} {target}" if ports else f"nmap -F -sV {target}"
+    extra, err = _sanitize_extra_args(extra_args)
+    if err:
+        return {"target": target, "error": err}
+    cmd = (f"nmap -sV -p {ports} {target}" if ports else f"nmap -F -sV {target}")
+    cmd += " " + _quote_extra(extra)
     result = await tool_bash(cmd, timeout=90)
     out = result.get("stdout", "") or result.get("result", "")
     return {"target": target, "result": out or f"(nmap no output, rc={result.get('returncode')})"}
@@ -947,16 +996,22 @@ def _parse_sqlmap_table(out: str, marker: str) -> List[List[str]]:
           "level": {"type": "number", "default": 2},
           "risk": {"type": "number", "default": 1},
           "max_time": {"type": "number", "default": 150, "description": "sqlmap --max-time budget per stage, seconds"},
+          "extra_args": {"type": "string", "default": "",
+                         "description": "optional extra sqlmap flags appended to EVERY stage (e.g. '--tamper space2comment', '--technique BEUQ'). No shell metacharacters."},
            "container": {"type": "string", "description": "Kali sandbox (injected automatically by the executor)"},
            "workdir": {"type": "string", "description": "working dir inside the sandbox (auto-injected)"}}},
       "inhouse")
 async def tool_sqlmap_exploit(url: str, cookies: str = "", param: str = "",
                                level: float = 2, risk: float = 1,
-                               max_time: float = 150, container: str = "", workdir: str = "") -> Dict[str, Any]:
+                               max_time: float = 150, extra_args: str = "",
+                               container: str = "", workdir: str = "") -> Dict[str, Any]:
     """确定性 SQLi 利用：在 Kali 沙箱里跑真实 sqlmap，--dbs → -D --tables → -T --dump，
     自动枚举并取数。取到的数据即 PoC 证据，无需 LLM 手写 payload（侦察/利用确定性拆分）。"""
     if not container:
         return {"error": "sqlmap_exploit needs the Kali sandbox container (injected automatically by the executor)"}
+    extra_tok, err = _sanitize_extra_args(extra_args)
+    if err:
+        return {"error": err}
     cookie_s = re.sub(r"\s+", "", cookies or "")
     # sqlmap 1.9.12 无 --max-time；用容器内 timeout 命令控制每阶段时间上限
     cap = int(max_time) + 30
@@ -977,7 +1032,7 @@ async def tool_sqlmap_exploit(url: str, cookies: str = "", param: str = "",
 
     out: Dict[str, Any] = {"url": url}
     # 1) 枚举数据库（sqlmap --dbs 输出是 'available databases [N]:\n[*] xxx' 列表）
-    dbs_raw = await stage("--dbs")
+    dbs_raw = await stage(*extra_tok, "--dbs")
     dbs = _parse_sqlmap_list(dbs_raw, "available databases")
     out["databases"] = dbs
     if not dbs:
@@ -989,7 +1044,7 @@ async def tool_sqlmap_exploit(url: str, cookies: str = "", param: str = "",
     db = biz[0] if biz else dbs[0]
     out["db"] = db
     # 2) 枚举表（短选项用空格分隔：-D dvwa，不是 -D=dvwa）
-    tabs_raw = await stage(f"-D {db}", "--tables")
+    tabs_raw = await stage(*extra_tok, f"-D {db}", "--tables")
     tables = [r[0] for r in _parse_sqlmap_table(tabs_raw, "")]
     out["tables"] = tables
     if not tables:
@@ -997,7 +1052,7 @@ async def tool_sqlmap_exploit(url: str, cookies: str = "", param: str = "",
         return out
     # 3) 取数（前 8 张表，控制耗时）
     top = tables[:8]
-    dump_raw = await stage(f"-D {db}", f"-T {','.join(top)}", "--dump")
+    dump_raw = await stage(*extra_tok, f"-D {db}", f"-T {','.join(top)}", "--dump")
     dump_rows: List[Any] = []
     header: List[str] = []
     for chunk in re.split(r"Table:\s+", dump_raw):
@@ -1281,12 +1336,18 @@ async def tool_memory(action: str, key: str = "", value: str = "") -> Dict[str, 
 # 缺失工具补齐
 # ---------------------------------------------------------------------------
 
-@tool("nikto", "Web server vulnerability scanner (nikto).",
+@tool("nikto", "Web server vulnerability scanner (nikto). extra_args: additional nikto flags (e.g. '-Tuning x', '-plugins dirsrv').",
       {"type": "object", "properties": {"url": {"type": "string"}, "container": {"type": "string"},
-                                        "workdir": {"type": "string"}}},
+                                        "workdir": {"type": "string"},
+                                        "extra_args": {"type": "string", "default": "",
+                                                       "description": "optional extra nikto flags appended; no shell metacharacters"}}},
       "pentagi")
-async def tool_nikto(url: str, container: str = "", workdir: str = "") -> Dict[str, Any]:
-    cmd = f"nikto -h {url}"
+async def tool_nikto(url: str, container: str = "", workdir: str = "", extra_args: str = "") -> Dict[str, Any]:
+    extra, err = _sanitize_extra_args(extra_args)
+    if err:
+        return {"url": url, "error": err}
+    cmd = f"nikto -h {shlex.quote(url)}"
+    cmd += " " + _quote_extra(extra)
     result = await tool_terminal(cmd, container=container, workdir=workdir) if container else await tool_bash(cmd)
     return {"url": url, "result": result.get("stdout", "")[:5000]}
 
@@ -1543,6 +1604,169 @@ async def tool_tool_help(name: str) -> Dict[str, Any]:
         return {"error": f"unknown tool '{name}'", "available": list_tools()}
     return {"tool": name, "source": t.source, "description": t.description,
             "schema": t.schema, "usage": TOOL_HELP.get(name, "(no detailed usage; see description)")}
+
+
+@tool("query_tool_output",
+      "Retrieve the FULL saved output of a tool call whose result was truncated in-context. "
+      "When a large tool output is truncated you get a hint: FULL OUTPUT SAVED ... use query_tool_output. "
+      "Pass that exact output_id. Use keyword to find matching lines (with 2 lines of context), or page/limit to walk the whole output.",
+      {"type": "object", "properties": {
+          "output_id": {"type": "string",
+                        "description": "the output_id shown in the truncation hint (e.g. 'a1b2c3d4-call_3')"},
+          "keyword": {"type": "string", "default": "",
+                      "description": "if set, return lines containing this text (case-insensitive) with 2 context lines"},
+          "page": {"type": "integer", "default": 1,
+                   "description": "1-based page number (ignored when keyword is set)"},
+          "limit": {"type": "integer", "default": 200,
+                    "description": "max lines to return (default 200, cap 2000)"},
+          "task_id": {"type": "string", "description": "injected automatically by the executor; do not set"}},
+         "required": ["output_id"]},
+      "inhouse")
+async def tool_query_tool_output(output_id: str, keyword: str = "", page: int = 1,
+                                 limit: int = 200, task_id: str = "") -> Dict[str, Any]:
+    """取回被截断工具输出的全文（分页/关键词）。文件由 executor._save_full_tool_output 落盘。"""
+    from agents.executor import TOOL_OUTPUT_DIR, _strip_payloads
+    limit = max(1, min(int(limit or 200), 2000))
+    page = max(1, int(page or 1))
+    out_dir = os.path.join(TOOL_OUTPUT_DIR, re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))[:80])
+    if not os.path.isdir(out_dir):
+        return {"error": f"no saved tool outputs for task (task_id={task_id!r}); it may have been cleaned up"}
+    # 匹配 output_id：文件名形如 <uid>-<call_id>.txt；允许只给后半段
+    oid = re.sub(r"[^A-Za-z0-9_-]", "_", str(output_id or ""))
+    if not oid:
+        return {"error": "output_id is required"}
+    target_file = None
+    exact = os.path.join(out_dir, oid + ".txt")
+    if os.path.isfile(exact):
+        target_file = exact
+    else:
+        # 模糊：stem 包含所给 id 片段（agent 可能只复制了部分），唯一命中才取
+        hits = [fn for fn in os.listdir(out_dir)
+                if fn.endswith(".txt") and oid in fn[:-4]]
+        if len(hits) == 1:
+            target_file = os.path.join(out_dir, hits[0])
+    if target_file is None:
+        avail = [fn[:-4] for fn in os.listdir(out_dir) if fn.endswith(".txt")][:20]
+        return {"error": f"output_id={output_id!r} not found (or ambiguous)", "available_output_ids": avail}
+    try:
+        with open(target_file, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except Exception as e:
+        return {"error": f"failed to read saved output: {e}"}
+
+    total = len(lines)
+    if keyword:
+        kw = keyword.lower()
+        matched = [i for i, ln in enumerate(lines) if kw in ln.lower()]
+        if not matched:
+            return {"output_id": output_id, "keyword": keyword, "matched_lines": 0,
+                    "total_lines": total, "lines": [],
+                    "note": "no lines matched; try a different keyword or page through the output"}
+        keep = set()
+        for i in matched:
+            for j in range(max(0, i - 2), min(total, i + 3)):
+                keep.add(j)
+        picked = sorted(keep)[:limit * 3]
+        shown = [f"{j + 1}: {lines[j]}" for j in picked]
+        return {"output_id": output_id, "keyword": keyword, "matched_lines": len(matched),
+                "total_lines": total, "returned_lines": len(shown), "lines": shown}
+    start = (page - 1) * limit
+    chunk = lines[start:start + limit]
+    if not chunk:
+        return {"error": f"page {page} is past end (total_lines={total})"}
+    out = _strip_payloads("\n".join(f"{start + i + 1}: {ln}" for i, ln in enumerate(chunk)))
+    return {"output_id": output_id, "total_lines": total, "page": page,
+            "shown": f"{start + 1}-{start + len(chunk)}", "lines": out.splitlines()}
+
+
+@tool("fofa_search", "Search the FOFA internet-of-things/host search engine (passive recon for EXTERNAL targets): "
+                     "subdomains, open ports, banners, components, historical data. Query examples: 'domain=\"example.com\"', "
+                     "'app=\"Apache\"', 'ip=\"1.2.3.4\" port=\"80\"', 'title=\"login\"'. "
+                     "Requires FOFA_EMAIL + FOFA_API_KEY in .env (no key -> error hint, nothing else needed).",
+      {"type": "object", "properties": {
+          "query": {"type": "string", "description": "FOFA query syntax, e.g. 'domain=\\\"example.com\\\"' or 'port=\"80\" country=\\\"CN\\\"'"},
+          "size": {"type": "integer", "default": 20, "description": "results per page (max 100)"},
+          "page": {"type": "integer", "default": 1},
+          "fields": {"type": "string", "default": "Host,Port,Title,App,Domain,Subdomain,Protocols",
+                     "description": "comma-separated result fields"}},
+         "required": ["query"]},
+      "inhouse")
+async def tool_fofa_search(query: str, size: int = 20, page: int = 1,
+                           fields: str = "Host,Port,Title,App,Domain,Subdomain,Protocols") -> Dict[str, Any]:
+    import base64 as _b64
+    email = env("FOFA_EMAIL").strip()
+    api_key = env("FOFA_API_KEY").strip()
+    if not email or not api_key:
+        return {"error": "FOFA not configured — set FOFA_EMAIL and FOFA_API_KEY in platform/.env "
+                         "(passive recon only; for lab targets use nmap/http_request instead)"}
+    if not query or not query.strip():
+        return {"error": "query is required"}
+    size = max(1, min(int(size or 20), 100))
+    page = max(1, int(page or 1))
+    data = {"kb": query.strip(), "size": size, "page": page, "fields": fields or ""}
+    headers = {"Authorization": _b64.b64encode(f"{email}:{api_key}".encode()).decode()}
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post("https://fofa.info/api/v1/search/all", data=data, headers=headers)
+            if r.status_code != 200:
+                return {"error": f"FOFA HTTP {r.status_code}: {r.text[:200]}"}
+            j = r.json()
+    except Exception as e:
+        return {"error": f"FOFA request failed: {type(e).__name__}: {str(e)[:160]}"}
+    results = j.get("results") or []
+    dec = []
+    for row in results[:size]:
+        if isinstance(row, str):
+            try:
+                row = _b64.b64decode(row).decode("utf-8", "replace")
+            except Exception:
+                pass
+        dec.append(row)
+    return {"query": query, "total": j.get("size", len(dec)), "page": page,
+            "count": len(dec), "results": dec}
+
+
+@tool("zoomeye_search", "Search the ZoomEye internet map engine (passive recon for EXTERNAL targets): "
+                        "IPs by port/service/leak, domains, vulnerability exposure. Query examples: 'port:80 country:CN', "
+                        "'domain:example.com', 'service:mysql'. Requires ZOOMEYE_API_KEY in .env.",
+      {"type": "object", "properties": {
+          "query": {"type": "string", "description": "ZoomEye query, e.g. 'port:80', 'domain:example.com', 'webserver:nginx'"},
+          "size": {"type": "integer", "default": 20, "description": "results per page (max 100)"},
+          "page": {"type": "integer", "default": 1}},
+         "required": ["query"]},
+      "inhouse")
+async def tool_zoomeye_search(query: str, size: int = 20, page: int = 1) -> Dict[str, Any]:
+    api_key = env("ZOOMEYE_API_KEY").strip()
+    if not api_key:
+        return {"error": "ZoomEye not configured — set ZOOMEYE_API_KEY in platform/.env "
+                         "(passive recon only; for lab targets use nmap/http_request instead)"}
+    if not query or not query.strip():
+        return {"error": "query is required"}
+    size = max(1, min(int(size or 20), 100))
+    page = max(1, int(page or 1))
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post("https://api.zoomeye.org/v2/search",
+                             json={"query": query.strip(), "page": page},
+                             headers={"Authorization": api_key, "Content-Type": "application/json"})
+            if r.status_code != 200:
+                return {"error": f"ZoomEye HTTP {r.status_code}: {r.text[:200]}"}
+            j = r.json()
+    except Exception as e:
+        return {"error": f"ZoomEye request failed: {type(e).__name__}: {str(e)[:160]}"}
+    res = j.get("results")
+    if isinstance(res, dict):
+        items = res.get("results") or []
+        total = res.get("count", len(items))
+    elif isinstance(res, list):
+        items, total = res, len(res)
+    else:
+        items, total = [], 0
+    slim = [{k: v for k, v in (it or {}).items()
+             if k in ("ip", "port", "host", "domain", "subdomain", "service", "webserver", "title",
+                      "country", "city", "transport", "leak", "status")} for it in items[:size]]
+    return {"query": query, "total": total, "page": page, "count": len(slim), "results": slim}
+
 
 # ---------------------------------------------------------------------------
 # 工具注册表导出

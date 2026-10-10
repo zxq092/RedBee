@@ -135,6 +135,7 @@
   .st-error{background:var(--danger-bg);color:var(--danger-text);} .st-cancel{background:#3d3520;color:var(--yellow);}
   .mode-badge{margin-left:6px;font-weight:500;background:#3a2b5f;color:#c9b3ff;}
   .mode-badge.mode-pentest{background:#2b3a5f;color:var(--blue);}
+  .source-badge{margin-left:6px;font-weight:600;background:#20323d;color:#7fd1e8;}
   .st-found{background:var(--pill-bg);color:var(--muted);} .st-confirmed{background:#2b4a2b;color:var(--green);}
   .st-false_positive{background:var(--danger-bg);color:var(--danger-text);}
 
@@ -318,6 +319,18 @@
   .f-class { font-family:ui-monospace,monospace; color:var(--blue-soft); font-size:11.5px; flex-shrink:0; min-width:74px; }
   .f-title { flex:1; min-width:0; }
   .f-status { font-size:10.5px; padding:1px 7px; border-radius:8px; font-weight:700; flex-shrink:0; }
+  .f-status.rt-badge { font-weight:500; opacity:.85; font-size:10px; }
+  .ic-row { display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap; padding:7px 9px; margin:5px 0;
+            border:1px solid var(--code-border); border-radius:8px; font-size:12px; }
+  .ic-row.ic-pending { border-color:var(--yellow); background:rgba(255,200,80,.06); }
+  .ic-row.ic-allowed { opacity:.75; }
+  .ic-row.ic-denied { opacity:.6; }
+  .ic-rule { font-weight:700; }
+  .ic-tool { color:var(--muted); font-size:11px; }
+  .ic-verdict { font-weight:700; }
+  .ic-cmd { flex-basis:100%; margin:4px 0 0; background:var(--code-bg); border-radius:6px; padding:6px 8px;
+            font-size:11px; white-space:pre-wrap; word-break:break-all; max-height:90px; overflow:auto; }
+  .ic-acts { display:flex; gap:6px; margin-left:auto; }
   .rep-none { color:var(--muted); font-size:12.5px; }
   .report-msg details { margin-top:8px; }
   .report-msg summary { cursor:pointer; color:var(--accent); font-size:12px; }
@@ -647,6 +660,25 @@ const TRANS = {
     "board": "漏洞板",
     "curReport": "当前报告",
     "execLog": "执行日志 ⬇",
+    "attackChain": "攻击链 🔗",
+    "attackChainTip": "攻击链图：LLM 从工具时间线蒸馏的 node/edge 图（侦察→利用→验证）",
+    "attackChainEmpty": "攻击链尚未生成（任务结束后 LLM 生成；LLM 不可用时未生成）",
+    "intercept": "安全管控",
+    "interceptTip": "命令级拦截：deny 直接拦截 / ask 人工审批（✅❌）/ allow 白名单；规则 DB 可配热加载",
+    "interceptPending": "待审批",
+    "interceptAllow": "批准",
+    "interceptDeny": "拒绝",
+    "interceptEmpty": "无待审批命令",
+    "interceptEmptyHist": "暂无审计记录（拦截/审批发生后在此可见）",
+    "interceptHistory": "最近审计",
+    "interceptErr": "安全管控面板加载失败：{e}",
+    "btw": "旁路提问",
+    "btwTip": "运行中顺口问 agent 一句：基于其当前上下文回答，不打断主循环、不能执行工具",
+    "btwPrompt": "问运行中 agent 一句（基于其当前上下文回答）：",
+    "btwAnswer": "🤔 btw（{who}）：{a}",
+    "btwFail": "旁路提问失败：{e}",
+    "btwNotRunning": "任务未运行，无法旁路提问",
+    "riskScore": "风险评分",
     "status": "状态",
     "module": "模块",
     "allModules": "全部模块",
@@ -723,6 +755,13 @@ const TRANS = {
     "reportBtn": "📖 报告",
     "reportTip": "页内预览报告（modal 内可下载 .md）",
     "reportTitle": "渗透报告 · {id}",
+    "fReport": "📄 报告",
+    "fReportTip": "单漏洞详细报告（任务结束后自动生成，LLM 失败时机械模板降级）",
+    "fReportTitle": "漏洞报告 · {title}",
+    "fRetest": "🔁 复测",
+    "fRetestTip": "派一个聚焦复测任务，完成后自动回写三态判定（reproduced/not_reproduced/inconclusive）",
+    "fRetestBusy": "复测任务已派发：{id}",
+    "fRetestFail": "复测派发失败：{e}",
     "noReportToast": "该任务无报告（无 findings），日志仍可下载",
     "bgTaskToast": "有任务在后台执行，回到该会话可看实时进度",
     "newSessFail": "新建会话失败: {e}",
@@ -856,6 +895,25 @@ const TRANS = {
     "board": "Vulnerabilities",
     "curReport": "Current Report",
     "execLog": "Log ⬇",
+    "attackChain": "Attack Chain 🔗",
+    "attackChainTip": "Attack chain graph: nodes/edges distilled by LLM from the tool timeline (recon→exploit→verify)",
+    "attackChainEmpty": "Attack chain not generated yet (built by LLM after task completion)",
+    "intercept": "Guard",
+    "interceptTip": "Command-level intercept: deny blocks / ask needs human approval (✅❌) / allow whitelists; DB-configured rules, hot-reloaded",
+    "interceptPending": "Pending approval",
+    "interceptAllow": "Approve",
+    "interceptDeny": "Deny",
+    "interceptEmpty": "No pending approvals",
+    "interceptEmptyHist": "No audit records yet (appears here after intercepts/approvals)",
+    "interceptHistory": "Recent audit",
+    "interceptErr": "Failed to load guard panel: {e}",
+    "btw": "Ask agent",
+    "btwTip": "Side question to the running agent: answered from its current context, does not interrupt the task, no tools",
+    "btwPrompt": "Ask the running agent a side question (answered from its current context):",
+    "btwAnswer": "🤔 btw ({who}): {a}",
+    "btwFail": "Side question failed: {e}",
+    "btwNotRunning": "Task is not running; cannot ask",
+    "riskScore": "Risk score",
     "status": "Status",
     "module": "module",
     "allModules": "All modules",
@@ -932,6 +990,13 @@ const TRANS = {
     "reportBtn": "📖 Report",
     "reportTip": "Preview the report inline (.md downloadable in the modal)",
     "reportTitle": "Pentest Report · {id}",
+    "fReport": "📄 Report",
+    "fReportTip": "Per-finding report (generated after the task; mechanical template fallback if LLM fails)",
+    "fReportTitle": "Finding Report · {title}",
+    "fRetest": "🔁 Retest",
+    "fRetestTip": "Dispatch a focused retest task; the three-state verdict is written back on completion",
+    "fRetestBusy": "Retest task dispatched: {id}",
+    "fRetestFail": "Retest dispatch failed: {e}",
     "noReportToast": "No report for this task (no findings); the log is still downloadable",
     "bgTaskToast": "A task is running in the background; go back to its session for live progress",
     "newSessFail": "Failed to create session: {e}",
@@ -1407,6 +1472,7 @@ async function renderTaskTable(){
     tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP()[t.status]||t.status));
     if (t.mode==='ctf') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge', tr('modeCtf')), {title:'目标猎取模式（单猎手 + flag 早停）'}));
     else if (t.mode==='pentest') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge mode-pentest', tr('modePentest')), {title:'渗透模式（OWASP 类 fan-out）'}));
+    if (t.source) tdSt.appendChild(Object.assign(el('span','status-pill source-badge', t.source==='cli' ? '🖥 CLI' : t.source), {title:`任务来源: ${t.source}${t.operator ? ' / ' + t.operator : ''}`]));
     rowEl.appendChild(tdSt);
     // 目标 / 发现 / 模块
     rowEl.appendChild(el('td','', t.target || t.target_id || '-'));
@@ -1775,6 +1841,46 @@ function createLiveCard(taskId, afterEl){
   boardLogBtn.title = tr('execLogTip');
   boardLogBtn.onclick = ()=>{ location.href = `/api/task/${taskId}/log/download`; };
   boardHead.appendChild(boardLogBtn);
+  const boardChainBtn = el('button','tbtn lb-chain',tr('attackChain'));
+  boardChainBtn.title = tr('attackChainTip');
+  boardChainBtn.onclick = async ()=>{
+    boardChainBtn.disabled = true;
+    try {
+      const ch = await api(`/api/task/${taskId}/attack-chain`);
+      if (ch && ch.status === 'ok' && ch.nodes && ch.nodes.length)
+        openReportModal(taskId, tr('attackChain')+' · '+taskId, chainToMarkdown(ch));
+      else toast(tr('attackChainEmpty'));
+    } catch(e){ toast(tr('attackChainEmpty')); }
+    finally { boardChainBtn.disabled = false; }
+  };
+  boardHead.appendChild(boardChainBtn);
+  const boardShieldBtn = el('button','tbtn lb-chain','🛡 '+tr('intercept'));
+  boardShieldBtn.title = tr('interceptTip');
+  boardShieldBtn.onclick = async ()=>{
+    boardShieldBtn.disabled = true;
+    try {
+      const d = await api('/api/intercept/pending');
+      const h = (await api('/api/intercept/history?limit=10')).history || [];
+      openInterceptModal(d.pending||[], h, boardShieldBtn, taskId);
+    } catch(e){ toast(tr('interceptErr',{e:String(e.message||e)})); }
+    finally { boardShieldBtn.disabled = false; }
+  };
+  boardHead.appendChild(boardShieldBtn);
+  const boardBtwBtn = el('button','tbtn lb-chain','🤔 '+tr('btw'));
+  boardBtwBtn.title = tr('btwTip');
+  boardBtwBtn.onclick = async ()=>{
+    if (!curTaskId){ toast(tr('btwNotRunning')); return; }
+    const q = (prompt(tr('btwPrompt'))||'').trim();
+    if (!q) return;
+    boardBtwBtn.disabled = true;
+    try {
+      const r = await api(`/api/task/${curTaskId}/btw`,{method:'POST',json:{question:q}});
+      const who = r.agent ? `${r.agent.module||'root'} · ${r.agent.turn}轮/${r.agent.tool_calls}工具` : '';
+      $('#msgs').appendChild(renderMsg('assistant', tr('btwAnswer',{a:r.answer||'', who})));
+    } catch(e){ toast(tr('btwFail',{e:e.message})); }
+    finally { boardBtwBtn.disabled = false; }
+  };
+  boardHead.appendChild(boardBtwBtn);
   const boardEl = el('div','lb-list');
   boardEl.appendChild(el('div','lb-empty',tr('noFindings')));
   const boardWrap = el('div','lc-board');
@@ -1900,6 +2006,11 @@ function buildBoardList(findings, opts){
     row.appendChild(el('span','f-title', f.title||tr('noTitle')));
     if (f.location) row.appendChild(el('span','lb-loc', f.location));
     row.appendChild(el('span','f-status st-'+st0, st0));
+    if (f.retest_verdict){
+      const rt = el('span','f-status rt-badge','🔁'+f.retest_verdict);
+      rt.title = '复测判定（retest 任务自动回写）';
+      row.appendChild(rt);
+    }
     // 手动状态流转（误报不再计入摘要；确认/恢复可回退）
     if (opts.onStatus && f.id!=null){
       const act = el('span','f-acts');
@@ -1914,6 +2025,27 @@ function buildBoardList(findings, opts){
       else act.appendChild(mk(tr('stFalsePositive'),'false_positive'));
       if (st0==='found') act.appendChild(mk(tr('stConfirm'),'confirmed'));
       else if (st0==='confirmed') act.appendChild(mk(tr('stRevert'),'found'));
+      // 单漏洞报告（ARTEX reporter）：LLM 单通道生成，失败机械模板降级
+      if (f.report_md){
+        const bRep = el('button','f-act', tr('fReport'));
+        bRep.title = tr('fReportTip');
+        bRep.onclick = ev=>{ ev.stopPropagation();
+          openReportModal(liveState ? liveState.taskId : '', tr('fReportTitle',{title:f.title||('finding '+f.id)}), f.report_md); };
+        act.appendChild(bRep);
+      }
+      // 复测（ARTEX retester）：聚焦复测任务，done 钩子自动回写三态判定
+      if (st0!=='false_positive' && f.retest_verdict!=='reproduced'){
+        const bRt = el('button','f-act', tr('fRetest'));
+        bRt.title = tr('fRetestTip');
+        bRt.onclick = async ev=>{ ev.stopPropagation(); bRt.disabled = true;
+          try {
+            const r = await api('/api/finding/'+f.id+'/retest', {method:'POST', json:{}});
+            bRt.textContent = '🔁…';
+            bRt.title = tr('fRetestBusy',{id:r.retest_task_id});
+          } catch(e){ bRt.disabled = false; toast(tr('fRetestFail',{e:String(e.message||e)})); }
+        };
+        act.appendChild(bRt);
+      }
       row.appendChild(act);
     }
     const det = el('div','lb-detail');
@@ -2258,6 +2390,21 @@ function mdToHtml(md){
   return out;
 }
 /* 报告页内预览（modal）：下载按钮保留在 modal 头部 */
+/* 攻击链 JSON → markdown（复用报告弹窗渲染；v1 阶段时间线，v2 换真图） */
+function chainToMarkdown(ch){
+  const L = [];
+  if (ch.summary) L.push('> '+ch.summary, '');
+  if (typeof ch.risk_score === 'number') L.push(`**${tr('riskScore')}**: ${(ch.risk_score*100).toFixed(0)}/100`, '');
+  const PH = {recon:'🔍 Recon', exploit:'⚔️ Exploit', verify:'✅ Verify', report:'📄 Report'};
+  let cur = null;
+  for (const n of (ch.nodes||[])){
+    if (n.phase !== cur){ cur = n.phase; L.push(`### ${PH[cur]||cur}`, ''); }
+    L.push(`${n.id}. **${n.title}**`+(n.detail?` — ${n.detail}`:''));
+  }
+  const edges = (ch.edges||[]).map(e=>`${e.from}→${e.to}`+(e.label?` (${e.label})`:'')).join(', ');
+  if (edges) L.push('', '**'+(tr('attackChain'))+':**', edges);
+  return L.join('\n');
+}
 function openReportModal(taskId, title, md){
   let ov = document.getElementById('mdOverlay');
   if (!ov){
@@ -2280,6 +2427,88 @@ function openReportModal(taskId, title, md){
 }
 function closeReportModal(){
   const ov = document.getElementById('mdOverlay');
+  if (ov) ov.style.display = 'none';
+}
+
+/* 安全管控 modal：pending 审批（✅/❌ 直接裁决）+ 最近审计；打开期间 5s 自刷新 */
+let _interceptTimer = null;
+function openInterceptModal(pending, history, btn, taskId){
+  let ov = document.getElementById('interceptOverlay');
+  if (!ov){
+    ov = document.createElement('div');
+    ov.id = 'interceptOverlay'; ov.className = 'md-overlay';
+    ov.innerHTML = `<div class="md-modal" style="width:min(860px,92vw)">
+      <div class="md-head"><span class="md-title"></span><span style="flex:1"></span>
+        <button class="tbtn md-close" title="${tr('closeTip')}">✕</button></div>
+      <div class="md-body"></div></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e=>{ if (e.target===ov) closeInterceptModal(); });
+    ov.querySelector('.md-close').onclick = closeInterceptModal;
+  }
+  const body = ov.querySelector('.md-body');
+  const refresh = async ()=>{
+    if (ov.style.display === 'none') return;
+    try {
+      const d = await api('/api/intercept/pending' + (taskId ? `?task_id=${taskId}` : ''));
+      const h = (await api(`/api/intercept/history?limit=10${taskId ? `&task_id=${taskId}` : ''}`)).history || [];
+      renderIntercept(d.pending||[], h);
+      if (btn) btn.textContent = (d.pending||[]).length
+        ? `🛡 ${tr('intercept')} (${d.pending.length})` : '🛡 ' + tr('intercept');
+    } catch(e){}
+  };
+  const renderIntercept = (pend, hist)=>{
+    ov.querySelector('.md-title').textContent = tr('intercept') + ' · ' + (taskId||'');
+    body.innerHTML = '';
+    if (pend.length){
+      body.appendChild(el('h5','', tr('interceptPending') + '（' + pend.length + '）'));
+      pend.forEach(p=>{
+        const row = el('div','ic-row ic-pending');
+        const cmd = el('pre','ic-cmd', String(p.args_json||'').slice(0,300));
+        row.append(
+          el('span','ic-rule', p.rule_name||''),
+          el('span','ic-tool', p.tool_name+' · '+(p.task_id||'')),
+          cmd,
+        );
+        const acts = el('span','ic-acts');
+        const mk = (label, action)=>{
+          const b = el('button','f-act', label);
+          b.onclick = async ev=>{
+            ev.stopPropagation(); b.disabled = true;
+            try {
+              await api(`/api/intercept/${p.id}/decide`, {method:'POST', json:{action}});
+              refresh();
+            } catch(e){ b.disabled = false; toast(String(e.message||e)); }
+          };
+          return b;
+        };
+        acts.append(mk('✅ '+tr('interceptAllow'),'allow'), mk('❌ '+tr('interceptDeny'),'deny'));
+        row.appendChild(acts);
+        body.appendChild(row);
+      });
+    } else {
+      body.appendChild(el('div','lb-empty', tr('interceptEmpty')));
+    }
+    body.appendChild(el('h5','', tr('interceptHistory')));
+    if (!hist.length) body.appendChild(el('div','lb-empty', tr('interceptEmptyHist')));
+    hist.forEach(hx=>{
+      const row = el('div','ic-row ic-'+hx.status);
+      row.append(
+        el('span','ic-rule', hx.rule_name||''),
+        el('span','ic-tool', hx.tool_name+' · '+(hx.task_id||'')+' · '+(hx.created_at||'').slice(5,16)),
+        el('span','ic-verdict', {allowed:'✅',denied:'❌',pending:'⏳'}[hx.status]||'') + ' ' + (hx.decided_by||''),
+        el('pre','ic-cmd', String(hx.args_json||'').slice(0,200)),
+      );
+      body.appendChild(row);
+    });
+  };
+  renderIntercept(pending, history);
+  clearInterval(_interceptTimer);
+  _interceptTimer = setInterval(refresh, 5000);
+  ov.style.display = 'flex';
+}
+function closeInterceptModal(){
+  clearInterval(_interceptTimer);
+  const ov = document.getElementById('interceptOverlay');
   if (ov) ov.style.display = 'none';
 }
 

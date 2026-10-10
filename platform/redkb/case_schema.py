@@ -84,6 +84,7 @@ class CaseSnapshot(StrictModel):
     task: str = Field(..., min_length=1)
     target: str = Field(..., min_length=1)
     target_id: str = Field(..., min_length=1)
+    summary: str = ""  # 预算耗尽强制收口总结（executor._final_wrapup），正常收口时可为空
     modules: list[str] = Field(default_factory=list)
     phases: list[PhaseSnapshot] = Field(default_factory=list)
     findings: list[FindingSnapshot] = Field(default_factory=list)

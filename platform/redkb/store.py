@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -852,8 +853,71 @@ def _filtered_rows(conn: sqlite3.Connection, include_candidates: bool = False) -
             continue
         if entry.status == "candidate" and not (include_candidates or entry.verified):
             continue
+        if str(entry.type or "") == "target_profile":
+            continue
         out.append(row)
     return out
+
+
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
+_ASCII_TERM_RE = re.compile(r"[a-z0-9_]{2,}")
+
+
+def _tokenize(text: str) -> list[str]:
+    """ASCII 词 + 中文字符 bigram（中文无空格切词，bigram 保检索召回）。"""
+    t = (text or "").lower()
+    terms = list(_ASCII_TERM_RE.findall(t))
+    for run in _CJK_RUN_RE.findall(t):
+        if len(run) == 1:
+            terms.append(run)
+        else:
+            terms.extend(run[i:i + 2] for i in range(len(run) - 1))
+    return terms
+
+
+def _bm25(query_terms: list[str], doc_terms: list[list[str]],
+          k1: float = 1.2, b: float = 0.75) -> list[float]:
+    """标准 BM25（语料级 DF/IDF），与 CyberStrikeAI retriever 同参；分数 >=0 未归一。"""
+    n = len(doc_terms)
+    if n == 0 or not query_terms:
+        return [0.0] * n
+    tf_per_doc: list[dict[str, int]] = []
+    lengths = [0] * n
+    df: dict[str, int] = {}
+    for i, terms in enumerate(doc_terms):
+        tf: dict[str, int] = {}
+        for term in terms:
+            tf[term] = tf.get(term, 0) + 1
+        tf_per_doc.append(tf)
+        lengths[i] = len(terms)
+        for term in tf:
+            df[term] = df.get(term, 0) + 1
+    avgdl = (sum(lengths) / n) or 1.0
+    scores = []
+    for tf, dl in zip(tf_per_doc, lengths):
+        norm = 1.0 - b + b * (dl / avgdl)
+        s = 0.0
+        for q in query_terms:
+            f = tf.get(q, 0)
+            if not f:
+                continue
+            idf = math.log(1.0 + (n - df[q] + 0.5) / (df[q] + 0.5))
+            s += idf * (f * (k1 + 1.0)) / (f + k1 * norm)
+        scores.append(s)
+    return scores
+
+
+def _hybrid_weight() -> float:
+    """BM25 权重（1.0=纯关键词，0.0=纯向量）。.env REDKB_HYBRID_WEIGHT 热加载，缺省 0.7。"""
+    try:
+        from config import env as _cfg_env  # 延迟导入：redkb 独立进程/网关进程均可用
+        raw = _cfg_env("REDKB_HYBRID_WEIGHT", "0.7")
+    except Exception:
+        raw = os.environ.get("REDKB_HYBRID_WEIGHT", "0.7")
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except (TypeError, ValueError):
+        return 0.7
 
 
 def query(text: str, types=None, tags=None, limit: int = 5,
@@ -869,26 +933,44 @@ def query(text: str, types=None, tags=None, limit: int = 5,
                 semantic_ok = True
             except Exception:
                 semantic_ok = False
-        tokens = [t for t in text.lower().split() if t]
-        scored: list[tuple[float, KnowledgeEntry]] = []
+        cands: list[tuple[KnowledgeEntry, str, tuple]] = []
         for row in rows:
             entry = _public_entry(_row_to_entry(row))
             if types and entry.type not in types:
                 continue
             if tags and not any(tag in entry.tags for tag in tags):
                 continue
-            blob = f"{entry.title} {entry.content_redacted or entry.content} {' '.join(entry.tags)} {entry.cve_id or ''} {entry.affected or ''}".lower()
-            weight = 0.0
-            if entry.cve_id and entry.cve_id.lower() == text.strip().lower():
-                weight += 10
-            weight += sum(2 for token in tokens if token in entry.title.lower())
-            weight += sum(1 for token in tokens if token in blob)
+            cands.append((entry, _text_of(entry).lower(), row))
+        qterms = list(dict.fromkeys(_tokenize(text)))  # 去重保序
+        bm25 = _bm25(qterms, [_tokenize(blob) for _, blob, _ in cands])
+        w = _hybrid_weight()
+        # 子串加分只给高判别词：出现在 ≤2 个候选(且 <30% 语料)的词才算，
+        # 排除"绕过/泄露/问题"这类通用词（小语料里它们标题命中会喧宾夺主）
+        n_cand = max(1, len(cands))
+        discriminating = [
+            t for t in qterms
+            if sum(1 for _, b, _ in cands if t in b) <= min(2, max(1, int(n_cand * 0.3)))
+        ]
+        scored: list[tuple[float, KnowledgeEntry]] = []
+        for (entry, blob, row), bm in zip(cands, bm25):
+            # 绝对饱和归一（1-exp(-b/2)）：相对 max 归一会把"唯一命中"放大成满分，
+            # 杂糅长文一个通用词命中就能翻盘；绝对尺度下多命中强相关仍趋近 1
+            bn = 1.0 - math.exp(-max(0.0, bm) / 2.0)
+            sem = 0.0
             row_vec = row["vect"] if "vect" in row.keys() else None
             if semantic_ok and row_vec is not None:
                 try:
-                    weight += vector.cosine(qvec, vector.unpack(row_vec)) * 4.0
+                    sem = max(0.0, min(1.0, vector.cosine(qvec, vector.unpack(row_vec))))
                 except Exception:
-                    pass
+                    sem = 0.0
+            # 子串加分（补 BM25 精确 token 匹配不足：sql↔sqli、中文短语）——标题信号最强
+            title = (entry.title or "").lower()
+            hit_title = sum(1 for t in discriminating if t in title)
+            hit_blob = sum(1 for t in discriminating if t in blob)
+            weight = 0.0
+            if entry.cve_id and entry.cve_id.lower() == text.strip().lower():
+                weight += 10
+            weight += w * bn + (1.0 - w) * sem + 1.5 * hit_title + 0.3 * hit_blob
             if weight > 0:
                 weight *= 1.0 if entry.status == "authoritative" else 0.4
                 weight += entry.confidence

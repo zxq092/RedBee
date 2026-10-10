@@ -1472,7 +1472,7 @@ async function renderTaskTable(){
     tdSt.appendChild(el('span','status-pill st-'+stCls, TASK_SMAP()[t.status]||t.status));
     if (t.mode==='ctf') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge', tr('modeCtf')), {title:'目标猎取模式（单猎手 + flag 早停）'}));
     else if (t.mode==='pentest') tdSt.appendChild(Object.assign(el('span','status-pill mode-badge mode-pentest', tr('modePentest')), {title:'渗透模式（OWASP 类 fan-out）'}));
-    if (t.source) tdSt.appendChild(Object.assign(el('span','status-pill source-badge', t.source==='cli' ? '🖥 CLI' : t.source), {title:`任务来源: ${t.source}${t.operator ? ' / ' + t.operator : ''}`]));
+    if (t.source) tdSt.appendChild(Object.assign(el('span','status-pill source-badge', t.source==='cli' ? '🖥 CLI' : t.source), {title:`任务来源: ${t.source}${t.operator ? ' / ' + t.operator : ''}`}));
     rowEl.appendChild(tdSt);
     // 目标 / 发现 / 模块
     rowEl.appendChild(el('td','', t.target || t.target_id || '-'));

@@ -43,6 +43,28 @@ REDKB_DB_PATH = os.path.join(_REDKB_DIR, "redkb.db")
 TARGETS_DIR = os.path.join(_REDKB_DIR, "targets")  # 靶场档案（靶场特定情报，非通用知识）
 
 
+def _ckpt_module(task_id: str, module: str, state: str) -> None:
+    """模块级 checkpoint 落库（供 resume 从模块边界续跑）。
+
+    模块粒度真实发生在引擎内部（此处），而非外层 orchestrator（v2 外层只 1 槽）。
+    失败静默（checkpoint 绝不能影响主线）。"""
+    if not task_id or not module:
+        return
+    try:
+        from pi_meta import sessions
+        st = sessions.get_task_state(task_id)
+        if not st:
+            st = {"planned": [], "modules": {}}
+        if not st.get("modules"):
+            st["modules"] = {}
+        if state == "running" and module not in st["modules"]:
+            st["modules"][module] = "running"
+        st["modules"][module] = state
+        sessions.save_task_state(task_id, st)
+    except Exception:
+        pass
+
+
 def _target_intel_brief(target_id: str) -> str:
     """热启动 brief：读靶场档案（data/targets/<target_id>.md，靶场特定情报）。
     KB 只存通用知识（scope=all）——通用技法 agent 用 kb_query 检索，不进 brief。
@@ -966,6 +988,7 @@ class OrchestratorV2:
                                  "last_type": "module_start",
                                  "last_message": f"[{m}] start", "msg_count": 0})
                 _tlog(task_id, "module_start", f"模块 {m} 开始（子 agent 启动）", m)
+                _ckpt_module(task_id, m, "running")
                 r = await _run_child(m, target, task, task_id, intel_block, runtime, progress_cb,
                                       child_max_turns=child_max_turns,
                                       shared_container=shared_container,
@@ -993,6 +1016,7 @@ class OrchestratorV2:
                     if r.error and r.error != "cancelled":
                         # 模块失败可见：LLM 全挂/容器失败等原因不再静默 0 findings
                         self.live["slots"][idx]["state"] = "error"
+                        _ckpt_module(task_id, m, "interrupted")
                         progress_cb({"module": m, "state": "error", "phase": "exploit",
                                      "last_type": "module_fail",
                                      "last_message": f"[{m}] failed: {str(r.error)[:160]}",
@@ -1000,6 +1024,7 @@ class OrchestratorV2:
                         _tlog(task_id, "module_fail", str(r.error)[:200], m)
                     else:
                         self.live["slots"][idx]["state"] = "done"
+                        _ckpt_module(task_id, m, "done_with_findings" if r.findings else "done_clean")
                         progress_cb({"module": m, "state": "done", "phase": "exploit",
                                      "last_type": "module_done",
                                      "last_message": f"[{m}] done: {len(r.findings)} findings" + (f" ({r.error})" if r.error else ""),

@@ -867,6 +867,63 @@ async def task_cancel(task_id: str, request: Request):
     return {"ok": True, **res}
 
 
+@app.post("/api/task/{task_id}/resume")
+async def task_resume(task_id: str, request: Request):
+    """续跑：从模块级 checkpoint 重派未完成模块（同 task_id，findings 累积进同一板）。
+
+    适用被打断/预算耗尽/上轮被杀但模块没跑完的任务——不用手动开新任务。
+    未完成 = checkpoint 里状态 ∈ {pending, running, interrupted} 的模块；
+    无 checkpoint（老任务）→ 视为整任务重跑。"""
+    denied = _check_auth(request)
+    if denied is not None:
+        return denied
+    meta = sessions.get_task_metadata(task_id)
+    if not meta:
+        return JSONResponse({"error": "unknown task_id"}, status_code=404)
+    bg = _BG_TASKS.get(task_id)
+    if bg is not None and not bg.done():
+        return JSONResponse({"error": "任务仍在运行，无需续跑"}, status_code=409)
+
+    state = sessions.get_task_state(task_id)
+    modules = state.get("modules") or {}
+    unfinished = [m for m, s in modules.items() if s in ("pending", "running", "interrupted")]
+    if unfinished:
+        note = f"续跑 {len(unfinished)} 个未完成模块: {','.join(unfinished)}"
+    else:
+        note = "无模块级 checkpoint（或已全完成），整任务重跑"
+    # 只用"被打断/失败"的模块续跑；done 模块已在板上，不重复打
+    resume_modules = unfinished if unfinished else None
+    task_params = {
+        "mode": meta.get("mode") or "pentest",
+        "mode_source": meta.get("mode_source") or "resume",
+    }
+    if resume_modules:
+        task_params["modules"] = resume_modules  # list（与 validate_task_params 产出一致）
+
+    # 清理可能残留的取消标记（旧 cancel 留下的），并复位到 running
+    task_registry.unmark_cancelled(task_id)
+    sid = meta.get("session_id") or ""
+    sessions.save_task_metadata(
+        task_id, meta.get("target", ""), meta.get("target_id", ""), meta.get("model", ""),
+        meta.get("agents") or [], meta.get("assigned_modules") or [], "running",
+        session_id=sid, task_text=meta.get("task_text", ""),
+        mode=meta.get("mode", ""), mode_source=meta.get("mode_source", ""),
+        source=meta.get("source", ""), operator=meta.get("operator", ""))
+    _LIVE_Q[task_id] = asyncio.Queue()
+    target = meta.get("target", "")
+    tg = meta.get("target_id", "")
+    task_text = meta.get("task_text", "")
+    agents = meta.get("agents") or list(AGENT_META.keys())
+    bg = asyncio.create_task(
+        _run_real(agents, task_text, target, sid, task_id, tg, task_params=task_params)
+    )
+    _BG_TASKS[task_id] = bg
+    task_registry.register(task_id, bg)
+    task_logs.log(task_id, "resume", note + f" params={task_params}")
+    print(f"[resume] task={task_id} {note}", flush=True)
+    return {"task_id": task_id, "status": "dispatched", "resume_modules": resume_modules or [], "note": note}
+
+
 @app.post("/api/task/{task_id}/message")
 async def task_message(task_id: str, request: Request):
     """飞行中指令（in-run steer）：注入任务运行中 agent，从各自下一个 LLM 轮次生效。

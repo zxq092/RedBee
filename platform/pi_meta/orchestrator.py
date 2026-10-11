@@ -66,6 +66,12 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
     mod_q: deque = deque(outer_slot_modules(target, task, normalized_target_id,
                                              mode=(task_params or {}).get("mode", "")))
     planned_modules = list(mod_q)
+    # 任务级 checkpoint：planned 模块状态落库供 resume（v2 外层 1 槽时 planned=[首个模块]，
+    # 真正的模块进度在引擎内部 _inhouse_run；外层只做槽位级记账，模块粒度交由 resume 用任务文本/params 重派）
+    ckpt = {"planned": planned_modules,
+            "modules": {m: "pending" for m in planned_modules},
+            "budget": _budget_seconds(), "deadline_left": _budget_seconds()}
+    sessions.save_task_state(task_id, ckpt)
     ver_q: deque = deque()            # 待确认 {fid, f, exclude_slot}(槽位级, 支持同名引擎多 flow)
     busy: dict[int, asyncio.Task] = {}
     meta: dict[asyncio.Task, tuple] = {}

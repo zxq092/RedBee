@@ -27,6 +27,8 @@ def _connect():
         task_id TEXT PRIMARY KEY, target TEXT, target_id TEXT, model TEXT,
         agents TEXT, assigned_modules TEXT, status TEXT, created_at TEXT,
         updated_at TEXT)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS task_state (
+        task_id TEXT PRIMARY KEY, state TEXT, updated_at TEXT)""")
     runtime_columns = {
         "runtime_model": "TEXT",
         "runtime_id": "TEXT",
@@ -231,6 +233,44 @@ def get_task_metadata(task_id: str) -> Dict[str, Any]:
         except Exception:
             out[key] = []
     return out
+
+
+def save_task_state(task_id: str, state: dict) -> None:
+    """持久化任务编排 checkpoint（模块级进度，供 resume/UI）。
+
+    state 形如 {"planned": [...], "modules": {mod: "pending|running|done_clean|done_with_findings|interrupted"},
+                 "budget": int, "deadline_left": float}
+    覆盖写（每模块完成/派发时调用）。"""
+    if not task_id:
+        return
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO task_state (task_id,state,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(task_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at",
+            (task_id, json.dumps(state or {}, ensure_ascii=False), utcnow()))
+        conn.commit()
+    except Exception:
+        pass  # checkpoint 失败不影响主线
+    finally:
+        conn.close()
+
+
+def get_task_state(task_id: str) -> dict:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT state FROM task_state WHERE task_id=?", (task_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["state"]:
+        return {}
+    try:
+        out = json.loads(row["state"])
+        out["modules"] = out.get("modules") or {}
+        return out
+    except Exception:
+        return {}
 
 
 def list_tasks(status: str = "", limit: int = 200) -> List[Dict[str, Any]]:

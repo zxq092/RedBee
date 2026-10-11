@@ -41,6 +41,11 @@ def mark_cancelled(task_id: str) -> None:
     _CANCELLED.add(task_id)
 
 
+def unmark_cancelled(task_id: str) -> None:
+    """清除取消标记（任务 resume 时避免被当作已取消）。"""
+    _CANCELLED.discard(task_id)
+
+
 def cancel_tasks(task_id: str) -> int:
     n = 0
     for t in list(_TASK_TASKS.get(task_id, ())):

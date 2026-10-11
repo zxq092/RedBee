@@ -420,9 +420,11 @@ MODULE_PHRASINGS = {
     "xss": ("xss", "cross site scripting", "cross-site scripting", "script injection"),
     "auth": ("authentication", "auth", "login", "credential", "password", "session", "weak"),
     "upload": ("file upload", "upload", "insecure file"),
+    "lfi": ("path traversal", "lfi", "file inclusion", "directory traversal"),
+    "xxe": ("xxe", "xml external entity", "xml injection", "xee"),
+    "xpath": ("xpath injection", "xquery injection"),
     "ssrf": ("ssrf", "server side request forgery"),
     "rce": ("rce", "remote code execution", "command injection", "code execution"),
-    "lfi": ("path traversal", "lfi", "file inclusion", "directory traversal"),
     "csrf": ("csrf", "cross site request forgery"),
     "idor": ("idor", "object level authorization", "bola", "direct object reference"),
 }
@@ -640,7 +642,8 @@ async def tool_list_skills(category: str = "") -> Dict[str, Any]:
 
 _SKILL_ALIAS = {"sqli": "sql-injection", "xss": "xss", "auth": "authentication-jwt",
                  "upload": "insecure-file-uploads", "ssrf": "ssrf", "rce": "rce",
-                 "lfi": "path-traversal-lfi-rfi", "csrf": "csrf", "idor": "idor",
+                 "lfi": "path-traversal-lfi-rfi", "xxe": "xxe", "xpath": "xpath-injection",
+                 "csrf": "csrf", "idor": "idor",
                  "llm": "llm-applications", "objective": "ctf-hunt"}
 
 # 护栏铁律：poc payload 绝不进 LLM context（DeepSeek-V4-Flash 对 SQLi 载荷硬 500）。

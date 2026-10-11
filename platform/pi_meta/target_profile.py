@@ -92,7 +92,7 @@ def resolve_recipe(target_id: str) -> dict:
     if not target_profile_exists(target_id):
         return {}
     return {
-        "max_modules": int(cfg_env("PIMETA_KNOWN_MAX_MODULES", "9")),
+        "max_modules": int(cfg_env("PIMETA_KNOWN_MAX_MODULES", "12")),
         "force_all": True,
         "skip_recon": True,
         "max_parallel": int(cfg_env("PIMETA_KNOWN_MAX_PARALLEL", "4")),

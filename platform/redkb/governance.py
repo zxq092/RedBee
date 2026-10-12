@@ -203,7 +203,7 @@ def governance_status_for_entry(entry: Any) -> str:
         return "quarantined"
     if sanitization != "sanitized" or validation not in {"candidate", "verified"} or not content_hash:
         return "reviewing"
-    if status in {"quarantined", "rejected", "disabled"}:
+    if status in {"quarantined", "rejected", "disabled", "revoked"}:
         return status
     if status == "authoritative" and not bool(_entry_get(entry, "verified", False)):
         return "reviewing"

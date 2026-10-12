@@ -41,6 +41,21 @@ _LIVE_Q: dict[str, "asyncio.Queue"] = {}
 def _new_task_id() -> str:
     return f"t{uuid.uuid4().hex}"
 
+
+def _track_bg(task_id: str, bg) -> None:
+    """登记后台任务到 _BG_TASKS 并在其完成时自动移除（防内存泄漏）。
+
+    只 pop 当 _BG_TASKS[task_id] 仍是本对象（resume 复用同 task_id 重建新任务时，
+    旧任务的 done 回调不得误删新任务）。任务完成后查询由 task_status/live 回退 DB 持久态。"""
+    _BG_TASKS[task_id] = bg
+
+    def _done(t, tid: str = task_id):
+        if _BG_TASKS.get(tid) is t:
+            _BG_TASKS.pop(tid, None)
+
+    bg.add_done_callback(_done)
+
+
 from contextlib import asynccontextmanager
 
 
@@ -310,7 +325,7 @@ async def run_task(payload: Request):
     bg = asyncio.create_task(
         _run_real(agents, task, target, sid, task_id, target_id, task_params=task_params)
     )
-    _BG_TASKS[task_id] = bg
+    _track_bg(task_id, bg)
     task_registry.register(task_id, bg)
     task_logs.log(task_id, "dispatch",
                   f"target={target} target_id={target_id} agents={','.join(agents)} "
@@ -333,7 +348,11 @@ async def run_task(payload: Request):
 async def task_status(task_id: str):
     t = _BG_TASKS.get(task_id)
     if t is None:
-        return JSONResponse({"error": "unknown task_id"}, status_code=404)
+        # 已从内存清理（历史/已完成/resume 前）or 重启后 → 回退 DB 持久态展示
+        meta = sessions.get_task_metadata(task_id)
+        if not meta:
+            return JSONResponse({"error": "unknown task_id"}, status_code=404)
+        return {"task_id": task_id, "status": meta.get("status") or "done", "meta": meta}
     if not t.done():
         return {"task_id": task_id, "status": "running",
                 "live": _LIVE.get(task_id, {"slots": {}, "queue": [], "verify_q": []})}
@@ -356,15 +375,25 @@ async def task_meta(task_id: str):
 @app.get("/api/task/{task_id}/live")
 async def task_live(task_id: str):
     """实时视图: 每个槽位 agent 当前的模块/flow/进度 + 剩余队列。"""
-    if task_id not in _LIVE:
-        return {"task_id": task_id, "slots": {}, "queue": [], "verify_q": []}
-    return {"task_id": task_id, **_LIVE[task_id]}
+    if task_id in _LIVE:
+        return {"task_id": task_id, **_LIVE[task_id]}
+    # 内存进度已清（任务刚结束/重启）→ 回退 DB 状态，避免前端误判 404
+    meta = sessions.get_task_metadata(task_id)
+    if meta:
+        return {"task_id": task_id, "slots": {}, "queue": [], "verify_q": [],
+                "status": meta.get("status") or ""}
+    return {"task_id": task_id, "slots": {}, "queue": [], "verify_q": []}
 
 
 async def _delayed_cleanup(task_id: str, delay: int = 600):
-    """任务结束后延迟清理 SSE 队列（给 /stream 客户端留出消费/重连窗口）。"""
+    """任务结束后延迟清理 SSE 队列（给 /stream 客户端留出消费/重连窗口）。
+
+    只清"本次任务"的队列对象：resume 复用同一 task_id 会重建成新 Queue，
+    若旧的清理协程仍在排队，必须用对象身份比对避免误删新任务的 /stream 队列。"""
+    q = _LIVE_Q.get(task_id)
     await asyncio.sleep(delay)
-    _LIVE_Q.pop(task_id, None)
+    if _LIVE_Q.get(task_id) is q:
+        _LIVE_Q.pop(task_id, None)
 
 
 @app.get("/api/task/{task_id}/stream")
@@ -487,34 +516,51 @@ async def _run_real(agents, task, target, sid, task_id, target_id: str = "", tas
     # 汇总报告 + 落库：v2 编排的 finding 都在 findings 表(board)，
     # 用 report_builder 从 board 读真实 findings 生成完整报告（含 PoC/覆盖对账）。
     # 取消/出错时同样基于已贴板的 findings 出部分报告（stop 不丢成果）。
-    from . import report_builder
-    metadata = sessions.get_task_metadata(task_id)
-    findings = report_builder.query_findings(task_id)
-    coverage = {"rows": report_builder.query_coverage(task_id),
-                "assigned_modules": metadata.get("assigned_modules") or [],
-                "target": metadata.get("target") or target}
-    report_md = report_builder.build_markdown_report(task_id, findings, coverage)
-    total = len([f for f in findings
-                 if str(f.get("status", "found")).lower() not in {"false_positive", "suspect"}])
-    status_counts: dict[str, int] = {}
-    for f in findings:
-        status = str(f.get("status", "found")).lower()
-        status_counts[status] = status_counts.get(status, 0) + 1
-    agg = {"total_findings": total, "findings": findings, "status_counts": status_counts,
-           "assigned_modules": coverage["assigned_modules"], "target": coverage["target"],
-           "model": metadata.get("model") or "RedBee"}
+    # 终态优先级：先算（只依赖 cancelled/run_error），保证即使后续聚合/落库失败也能标记终态。
     final_status = "cancelled" if cancelled else ("runtime_error" if run_error else "done")
-    # 持久化失败原因（runtime_error_summary），前端状态行/任务记录据此展示"为什么失败/中断"
-    sessions.save_task_metadata(
-        task_id, target, target_id or metadata.get("target_id", ""), metadata.get("model", ""),
-        list(agents), agg["assigned_modules"], final_status,
-        runtime_error_summary=(run_error[:200] if (run_error and not cancelled) else ""),
-        session_id=sid)
-    sessions.save_report(sid, task, target, agg["model"], report_md,
-                         {"task_id": task_id, "total": total,
-                          "target_id": metadata.get("target_id", ""),
-                          "assigned_modules": agg["assigned_modules"],
-                          "status": final_status})
+    findings, report_md, total, status_counts, agg = [], "", 0, {}, None
+    metadata = {}
+    try:
+        from . import report_builder
+        metadata = sessions.get_task_metadata(task_id) or {}
+        findings = report_builder.query_findings(task_id)
+        coverage = {"rows": report_builder.query_coverage(task_id),
+                    "assigned_modules": metadata.get("assigned_modules") or [],
+                    "target": metadata.get("target") or target}
+        report_md = report_builder.build_markdown_report(task_id, findings, coverage)
+        total = len([f for f in findings
+                     if str(f.get("status", "found")).lower() not in {"false_positive", "suspect"}])
+        status_counts: dict[str, int] = {}
+        for f in findings:
+            status = str(f.get("status", "found")).lower()
+            status_counts[status] = status_counts.get(status, 0) + 1
+        agg = {"total_findings": total, "findings": findings, "status_counts": status_counts,
+               "assigned_modules": coverage["assigned_modules"], "target": coverage["target"],
+               "model": metadata.get("model") or "RedBee"}
+    except Exception as e:
+        findings = []
+        total = 0
+        status_counts = {}
+        agg = {"total_findings": 0, "findings": [], "status_counts": {}, "assigned_modules": [],
+               "target": target, "model": "RedBee"}
+        print(f"[summarize] task={task_id} aggregation error: {type(e).__name__}: {e}", flush=True)
+    # 终态持久化 + 报告落库单独守护：失败也绝不能把任务留在 running
+    try:
+        sessions.save_task_metadata(
+            task_id, target, target_id or metadata.get("target_id", ""), metadata.get("model", ""),
+            list(agents), agg["assigned_modules"], final_status,
+            runtime_error_summary=(run_error[:200] if (run_error and not cancelled) else ""),
+            session_id=sid)
+    except Exception as e:
+        print(f"[summarize] task={task_id} status persist error: {type(e).__name__}: {e}", flush=True)
+    try:
+        sessions.save_report(sid, task, target, agg["model"], report_md,
+                             {"task_id": task_id, "total": total,
+                              "target_id": target_id or metadata.get("target_id", ""),
+                              "assigned_modules": agg["assigned_modules"],
+                              "status": final_status})
+    except Exception as e:
+        print(f"[summarize] task={task_id} report persist error: {type(e).__name__}: {e}", flush=True)
     # 任务结果不再往会话存"纯文本结论"消息：结果展示的唯一入口是前端的
     # 任务记录块（renderTaskArtifacts，从 /api/tasks + /board + 报告渲染，
     # 带 ⬇报告/⬇日志 下载）+ 实时执行卡定格。旧数据里的纯文本结论由前端
@@ -718,7 +764,7 @@ async def api_finding_retest(finding_id: int, request: Request):
     bg = asyncio.create_task(
         _run_real(["RedBee"], task_text, f["target"], sid, task_id,
                   meta.get("target_id", ""), task_params=task_params))
-    _BG_TASKS[task_id] = bg
+    _track_bg(task_id, bg)
     task_registry.register(task_id, bg)
     finding_report.record_retest(finding_id, task_id)
     task_logs.log(task_id, "dispatch",
@@ -917,7 +963,7 @@ async def task_resume(task_id: str, request: Request):
     bg = asyncio.create_task(
         _run_real(agents, task_text, target, sid, task_id, tg, task_params=task_params)
     )
-    _BG_TASKS[task_id] = bg
+    _track_bg(task_id, bg)
     task_registry.register(task_id, bg)
     task_logs.log(task_id, "resume", note + f" params={task_params}")
     print(f"[resume] task={task_id} {note}", flush=True)

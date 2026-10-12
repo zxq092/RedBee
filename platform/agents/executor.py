@@ -725,6 +725,7 @@ class InhouseAgent:
             try:
                 msg = await self._chat(self.messages, runtime=selected)
             except Exception as e:
+                await self._cleanup()
                 return self._fail(str(e))
             self.state.turn += 1
             tool_calls = msg.get("tool_calls")
@@ -775,6 +776,7 @@ class InhouseAgent:
             try:
                 msg = await self._chat(self.messages, runtime=selected)
             except Exception as e:
+                await self._cleanup()
                 yield {"type": "error", "runtime_id": selected.runtime_id, "error": str(e)}
                 return
             self.state.turn += 1
@@ -882,8 +884,10 @@ class InhouseAgent:
             unregister_container(self.container)
             # 共享容器（_owns_container=False）由编排层任务级统一回收，这里不删
             if self._owns_container:
-                await asyncio.create_subprocess_shell(f"docker rm -f {self.container}",
+                proc = await asyncio.create_subprocess_shell(
+                    f"docker rm -f {self.container}",
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                await asyncio.wait_for(proc.communicate(), timeout=15)
             self.container = None
 
     def _infer_module(self, task: str) -> str:
@@ -1087,6 +1091,7 @@ class InhouseAgent:
 
     def _case_tool_calls(self) -> List[Dict[str, Any]]:
         pending: Dict[str, Dict[str, Any]] = {}
+        completed: List[Dict[str, Any]] = []
         for message in self.messages:
             if message.get("role") == "assistant" and message.get("tool_calls"):
                 for tc in message["tool_calls"]:
@@ -1111,7 +1116,11 @@ class InhouseAgent:
                 call["status"] = "ok" if isinstance(parsed_result, dict) and "error" not in parsed_result else "error"
                 call["started_at"] = self._tool_started.get(call_id, time.strftime("%Y-%m-%dT%H:%M:%S"))
                 call["ended_at"] = self._tool_ended.get(call_id, time.strftime("%Y-%m-%dT%H:%M:%S"))
-        return list(pending.values())
+                completed.append(call)
+        # 已完成（拿到 tool 结果）按执行顺序返回；未被 tool 结果配对的（如 compaction 截断）
+        # 保留在末尾，避免轨迹丢调用
+        completed.extend(pending.values())
+        return completed
 
     def _case_db_rows(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         conn = _conn()

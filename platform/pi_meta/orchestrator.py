@@ -211,6 +211,12 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
                 t.cancel()
             await asyncio.gather(*busy.values(), return_exceptions=True)
             busy.clear()
+            # 取消路径：飞行中子 agent 可能在 await 中途被 cancel，跳过自己的 _cleanup →
+            # 这里统一补杀本任务全部注册容器（幂等，防 inhouse-task/sess-* 泄漏）
+            try:
+                await task_registry.kill_containers(task_id)
+            except Exception:
+                pass
             break
         if not busy and not mod_q and (not ver_q or not any_compatible()):
             if ver_q:
@@ -222,6 +228,10 @@ async def orchestrate(task_id: str, agents: list[str], task: str, target: str,
             for t in list(busy.values()):
                 t.cancel()
             await asyncio.gather(*busy.values(), return_exceptions=True)
+            try:
+                await task_registry.kill_containers(task_id)
+            except Exception:
+                pass
             break
         if not busy:
             refill()

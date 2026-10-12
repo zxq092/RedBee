@@ -84,6 +84,10 @@ def _technique_from_vuln_class(vc: str) -> str:
         return "idor"
     if "csrf" in t or "cross-site request" in t:
         return "csrf"
+    if "xxe" in t or "xml external entity" in t or "external entity" in t or "xml injection" in t:
+        return "xxe"
+    if "xpath" in t or "xquery" in t:
+        return "xpath"
     # 强信号: 暴露/信息泄露类优先于通用 auth(治 "Misconfiguration / Missing Authentication" 误归 auth)
     if ("misconfig" in t or "information disclosure" in t or "exposed" in t or "source code" in t
             or ".git" in t or "setup.php" in t or "debug" in t or "default cred" in t):
@@ -111,6 +115,8 @@ _TECH_ZH_ALIAS = {
     "rce": ["远程代码执行", "remote code execution", "code execution"],
     "ssti": ["服务端模板注入", "server side template injection", "template injection"],
     "deserialization": ["反序列化", "insecure deserialization", "phar deserialization"],
+    "xxe": ["xml外部实体", "xml external entity", "xml注入", "external entity injection"],
+    "xpath": ["xpath注入", "xpath injection", "xquery injection"],
     "other": ["通用"],
 }
 
@@ -124,6 +130,8 @@ def _technique_content(technique: str) -> str:
         "ssrf": "Test server-side URL resolution with controlled internal and external destinations, then retain only demonstrated fetch behavior.",
         "cmdi": "Inject a controlled command-separator probe into an OS-interpolated parameter and confirm execution via a unique out-of-band marker; retain only responses echoing the marker.",
         "lfi": "Probe an inclusion or path parameter with controlled relative and absolute path inputs and confirm file disclosure via a unique marker; retain only responses echoing the marker.",
+        "xxe": "Submit XML with a controlled external entity (file:// or entity expansion) into an XML-parsing endpoint and confirm the parser resolves it into file contents or an out-of-band fetch; retain only demonstrated resolution.",
+        "xpath": "Probe an XML lookup keyed on user input with controlled XPath expressions and confirm the result set changes (auth bypass or extra data) via a unique marker; retain only demonstrated altered results.",
         "rfi": "Point an inclusion or path parameter at a controlled remote resource and confirm the server fetches and includes it via a unique marker; retain only demonstrated fetch-and-include behavior.",
         "idor": "Enumerate object identifiers across authenticated requests and confirm horizontal access to records scoped to another caller; retain only cross-tenant or cross-user reads.",
         "csrf": "Construct a cross-origin state-changing request against a session-bearing endpoint lacking a token or origin check and confirm the mutation applies; retain only demonstrated state change.",
@@ -545,13 +553,15 @@ def _scan_and_promote_candidates():
             tags = []
         if not tags:
             continue
-        technique = next((t for t in tags if t in ("sqli","xss","auth","upload","ssrf","cmdi","lfi","rfi","idor","csrf","misconfig","rce","ssti","deserialization")), None)
+        technique = next((t for t in tags if t in ("sqli","xss","auth","upload","ssrf","cmdi","lfi","rfi","xxe","xpath","idor","csrf","misconfig","rce","ssti","deserialization")), None)
         if not technique:
             continue
         findings = _load_findings(source_id) if source_id else []
         if not findings:
             continue
-        match = any(str(f.get("vuln_class", "")).lower().find(technique) >= 0 for f in findings)
+        # 判别与蒸馏侧同一归一逻辑（治 2026-10-11 短名子串匹配对不上全称的坑：
+        # find('sqli') 对 'SQL Injection' 恒 -1 → 自动提升永不触发）
+        match = any(_technique_from_vuln_class(str(f.get("vuln_class") or "")) == technique for f in findings)
         if not match:
             continue
         # 递增 usage_count

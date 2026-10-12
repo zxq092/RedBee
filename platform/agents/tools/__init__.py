@@ -1208,8 +1208,10 @@ def _ingest_finding_to_kb(title: str, poc: str, evidence: str, asset: str,
             content=f"PoC: {poc_a[:2000]}\n\nEvidence: {evidence_a[:1200]}\n\n(source target: {target_id})",
             tags=[vuln_class.lower(), target_id, "lab"],
             scope="all",
-            status="authoritative", verified=True, proof_method="replay",
-            source_type="agent", case_evidence=[evidence_a[:300]], confidence=0.85,
+            # 必须用 inhouse + candidate（别用 authoritative）：NEW_SOURCE_TYPES 里 status=authoritative
+            # 会被 ingest 降级 needs_review 且不可检索；inhouse+candidate 才 active 可检索（AGENTS 已踩过）。
+            status="candidate", validation_status="verified", verified=True, proof_method="replay",
+            source_type="inhouse", case_evidence=[evidence_a[:300]], confidence=0.85,
         )
         return store.ingest(entry)
     except Exception:

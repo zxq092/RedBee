@@ -57,8 +57,6 @@ def _ckpt_module(task_id: str, module: str, state: str) -> None:
             st = {"planned": [], "modules": {}}
         if not st.get("modules"):
             st["modules"] = {}
-        if state == "running" and module not in st["modules"]:
-            st["modules"][module] = "running"
         st["modules"][module] = state
         sessions.save_task_state(task_id, st)
     except Exception:
@@ -1012,11 +1010,15 @@ class OrchestratorV2:
                                               shared_container=shared_container,
                                               task_budget=task_budget,
                                               stop_check=stop_check)
+                # checkpoint 与 progress_cb 解耦：即使调用方不传 progress_cb，模块终态也要落库，
+                # 否则 resume 会把所有打完的模块当"未完成"整重跑。
+                _ckpt_module(task_id, m,
+                             "interrupted" if (r.error and r.error != "cancelled")
+                             else ("done_with_findings" if r.findings else "done_clean"))
                 if progress_cb:
                     if r.error and r.error != "cancelled":
                         # 模块失败可见：LLM 全挂/容器失败等原因不再静默 0 findings
                         self.live["slots"][idx]["state"] = "error"
-                        _ckpt_module(task_id, m, "interrupted")
                         progress_cb({"module": m, "state": "error", "phase": "exploit",
                                      "last_type": "module_fail",
                                      "last_message": f"[{m}] failed: {str(r.error)[:160]}",
@@ -1024,7 +1026,6 @@ class OrchestratorV2:
                         _tlog(task_id, "module_fail", str(r.error)[:200], m)
                     else:
                         self.live["slots"][idx]["state"] = "done"
-                        _ckpt_module(task_id, m, "done_with_findings" if r.findings else "done_clean")
                         progress_cb({"module": m, "state": "done", "phase": "exploit",
                                      "last_type": "module_done",
                                      "last_message": f"[{m}] done: {len(r.findings)} findings" + (f" ({r.error})" if r.error else ""),

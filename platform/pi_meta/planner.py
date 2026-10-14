@@ -19,6 +19,7 @@ MODULES = {
     "lfi": "File inclusion / path traversal: page/file/link parameters → LFI/RFI to read arbitrary files or RCE (Log Poisoning / PHP filters / %00 / double-encoding)",
     "xxe": "XML External Entity / XML injection: XML/validator/upload/SOAP endpoints → XXE file:// read, SSRF via entities, billion-laughs DoS",
     "xpath": "XPath / query-language injection: XML lookups keyed on user input → XPath boolean/auth bypass and data extraction",
+    "pwn": "Program-level exploitation: local binary / service / kernel, buffer overflow / format string / heap / ROP / shellcode → trigger bug, build primitive, reach code execution",
     "cmdi": "Command injection / RCE: shell parameters, deserialization, template injection",
     "ssrf": "SSRF: URL parameters, webhooks, image/proxy fetch, cloud metadata",
     "idor": "Broken access control / IDOR: object references, function-level auth, mass assignment",

@@ -423,6 +423,7 @@ MODULE_PHRASINGS = {
     "lfi": ("path traversal", "lfi", "file inclusion", "directory traversal"),
     "xxe": ("xxe", "xml external entity", "xml injection", "xee"),
     "xpath": ("xpath injection", "xquery injection"),
+    "pwn": ("binary exploitation", "pwn", "buffer overflow", "format string", "heap", "rop", "shellcode", "exploit development", "use after free", "crash analysis"),
     "ssrf": ("ssrf", "server side request forgery"),
     "rce": ("rce", "remote code execution", "command injection", "code execution"),
     "csrf": ("csrf", "cross site request forgery"),
@@ -643,7 +644,7 @@ async def tool_list_skills(category: str = "") -> Dict[str, Any]:
 _SKILL_ALIAS = {"sqli": "sql-injection", "xss": "xss", "auth": "authentication-jwt",
                  "upload": "insecure-file-uploads", "ssrf": "ssrf", "rce": "rce",
                  "lfi": "path-traversal-lfi-rfi", "xxe": "xxe", "xpath": "xpath-injection",
-                 "csrf": "csrf", "idor": "idor",
+                 "pwn": "binary-exploitation", "csrf": "csrf", "idor": "idor",
                  "llm": "llm-applications", "objective": "ctf-hunt"}
 
 # 护栏铁律：poc payload 绝不进 LLM context（DeepSeek-V4-Flash 对 SQLi 载荷硬 500）。
@@ -1413,6 +1414,55 @@ async def tool_python(code: str, container: str = "", workdir: str = "") -> Dict
     cmd = f"python3 -c {json.dumps(code)}"
     result = await tool_terminal(cmd, container=container, workdir=workdir) if container else await tool_bash(cmd)
     return {"output": result.get("stdout", ""), "stderr": result.get("stderr", "")}
+
+@tool("native_info", "Program-level recon on a local binary in the sandbox: file type + arch/PIE/security headers (checksec/readelf).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_info(path: str, container: str = "") -> Dict[str, Any]:
+    cmd = (f"file {json.dumps(path)} ; echo --- ; "
+           f"(command -v checksec >/dev/null && checksec --file={json.dumps(path)}) || "
+           f"readelf -h {json.dumps(path)} 2>/dev/null ; echo --- ; readelf -l {json.dumps(path)} 2>/dev/null | grep -iE 'GNU_STACK|GNU_RELRO'")
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
+@tool("native_gdb", "Run gdb batch against a local binary: backtrace/registers on crash or disassemble a function.",
+      {"type": "object", "properties": {"path": {"type": "string"}, "args": {"type": "string"},
+                                        "stdin_file": {"type": "string"},
+                                        "commands": {"type": "string"}, "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_gdb(path: str, args: str = "", stdin_file: str = "", commands: str = "",
+                          container: str = "") -> Dict[str, Any]:
+    cmds = commands or "run\nbt 20\ninfo registers"
+    stdin_opt = f'< {json.dumps(stdin_file)}' if stdin_file else ""
+    gdb_cmds = cmds.replace("\\n", "\n")
+    cmd = (f"gdb -batch -ex \"set pagination off\" "
+           f"-ex \"{gdb_cmds.splitlines()[0] if gdb_cmds else 'run'}\" ")
+    for line in gdb_cmds.splitlines()[1:]:
+        cmd += f'-ex "{line}" '
+    run_part = f" --args {path} {args}" if args else f" {path}"
+    # stdin 文件场景用 run < file 表达
+    if stdin_file:
+        cmd = (f"cat {json.dumps(stdin_file)} > /tmp/gdb_stdin; "
+               f"gdb -batch -ex \"set pagination off\" -ex \"run < /tmp/gdb_stdin\" -ex \"bt 20\" -ex \"info registers\" {path}")
+    else:
+        cmd += run_part
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
+@tool("native_run", "Run a local binary in the sandbox with args/stdin; capture stdout/stderr/returncode (for crash/trigger probing).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "args": {"type": "string"},
+                                        "stdin_text": {"type": "string"}, "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_run(path: str, args: str = "", stdin_text: str = "", container: str = "") -> Dict[str, Any]:
+    if stdin_text:
+        cmd = f"printf %s {json.dumps(stdin_text)} | {path} {args}"
+    else:
+        cmd = f"{path} {args}"
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
 
 @tool("list_files", "List files in a scoped working directory.",
       {"type": "object", "properties": {"path": {"type": "string"}}},

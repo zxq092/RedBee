@@ -97,7 +97,7 @@ GATED_TOOLS: set = {
     # 浏览器 → skill "agent_browser"
     "browser",
     # 程序级利用（pwn）→ skill "binary-exploitation"
-    "native_info", "native_gdb", "native_run",
+    "native_info", "native_gdb", "native_run", "native_interact", "native_pwn", "native_analyze", "native_source",
     # 白盒 → skill "source-aware-whitebox"
     "search_code", "amend_threat_model", "apply_patch",
     # 报告族 → skill "report-writing"
@@ -119,7 +119,8 @@ TOOL_UNLOCK_MAP: Dict[str, set] = {
     "agent_browser": {"browser"},
     "source-aware-whitebox": {"search_code", "amend_threat_model", "apply_patch"},
     "pre-recon-code": {"search_code", "amend_threat_model", "apply_patch"},
-    "binary-exploitation": {"native_info", "native_gdb", "native_run"},
+    "binary-exploitation": {"native_info", "native_gdb", "native_run", "native_interact",
+                            "native_pwn", "native_analyze", "native_source"},
     "report-writing": {"create_vulnerability_report", "list_reports"},
     "report-executive": {"create_vulnerability_report", "list_reports"},
     "bugcrowd-reporting": {"create_vulnerability_report", "list_reports"},

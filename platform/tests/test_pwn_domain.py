@@ -3,7 +3,8 @@ import pytest
 from agents.executor import GATED_TOOLS, TOOL_UNLOCK_MAP, InhouseAgent
 from agents.tools import TOOL_REGISTRY, get_skill_content, resolve_skill_name
 
-_NATIVE = {"native_info", "native_gdb", "native_run"}
+_NATIVE = {"native_info", "native_gdb", "native_run", "native_interact",
+           "native_pwn", "native_analyze", "native_source"}
 
 
 def _schema_names(agent) -> set:

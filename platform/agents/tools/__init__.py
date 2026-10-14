@@ -1464,6 +1464,72 @@ async def tool_native_run(path: str, args: str = "", stdin_text: str = "", conta
     return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
             "returncode": result.get("returncode")}
 
+@tool("native_interact", "Connect to a local TCP/service endpoint in the sandbox and exchange raw bytes (for networked victim services).",
+      {"type": "object", "properties": {"host": {"type": "string"}, "port": {"type": "integer"},
+                                        "send": {"type": "string"}, "recv_bytes": {"type": "integer"},
+                                        "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_interact(host: str, port: int, send: str = "", recv_bytes: int = 4096,
+                               container: str = "") -> Dict[str, Any]:
+    script = ("import socket,sys\n"
+              f"s=socket.create_connection(({json.dumps(str(host))},{int(port)}),timeout=8)\n"
+              f"s.sendall({json.dumps(send or '')}.encode('latin1'))\n"
+              "try:\n"
+              f"    d=s.recv({int(recv_bytes)})\n"
+              "    print(repr(d))\n"
+              "except Exception as e:\n"
+              "    print('recv_err',e)\n")
+    cmd = f"python3 -c {json.dumps(script)}"
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
+@tool("native_pwn", "Write and run an exploit script (python3/pwntools or shellcode) against a victim in the sandbox; payload lives in the script, not in prose.",
+      {"type": "object", "properties": {"binary": {"type": "string"}, "script": {"type": "string"},
+                                        "remote": {"type": "integer"}, "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_pwn(binary: str = "", script: str = "", remote: int = 0,
+                          container: str = "") -> Dict[str, Any]:
+    if script:
+        # 本地目标：脚本里用 gdb.process/pwn 交互本机 binary
+        cmd = f"python3 -c {json.dumps(script)}"
+    elif binary:
+        cmd = f"python3 -c \"from pwn import *; p=process({json.dumps(binary)}); print(p.recvall(timeout=5).decode('latin1','replace'))\""
+    else:
+        return {"error": "native_pwn needs 'script' or 'binary'"}
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
+@tool("native_analyze", "Analyze a binary/crash: symbols, sections, strings, objdump, or classify a crash (ASAN/core).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "action": {"type": "string"},
+                                        "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_analyze(path: str, action: str = "symbols", container: str = "") -> Dict[str, Any]:
+    opts = {
+        "symbols": f"nm -C {json.dumps(path)} 2>/dev/null | head -50 ; echo --- ; readelf -s {json.dumps(path)} 2>/dev/null | grep -iE 'FUNC|GLOBAL' | head -40",
+        "strings": f"strings -n 6 {json.dumps(path)} | head -40",
+        "disasm": f"objdump -d -M intel {json.dumps(path)} 2>/dev/null | sed -n '1,80p'",
+        "header": f"readelf -h {json.dumps(path)} ; echo --- ; readelf -l {json.dumps(path)} | grep -iE 'GNU_STACK|GNU_RELRO|LOAD'",
+    }
+    cmd = opts.get(action, opts["symbols"])
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
+@tool("native_source", "Read/search source files in the sandbox working dir (for ExploitBench 'reach the code' rung / CyberGym analysis).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "pattern": {"type": "string"},
+                                        "container": {"type": "string"}}},
+      "inhouse")
+async def tool_native_source(path: str = ".", pattern: str = "", container: str = "") -> Dict[str, Any]:
+    if pattern:
+        cmd = f"grep -RIn --include='*.c' --include='*.h' --include='*.cc' --include='*.js' {json.dumps(pattern)} {json.dumps(path)} 2>/dev/null | head -40"
+    else:
+        cmd = f"find {json.dumps(path)} -type f \\( -name '*.c' -o -name '*.h' -o -name '*.cc' -o -name '*.js' \\) | head -40"
+    result = await tool_terminal(cmd, container=container) if container else await tool_bash(cmd)
+    return {"output": result.get("stdout", ""), "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode")}
+
 @tool("list_files", "List files in a scoped working directory.",
       {"type": "object", "properties": {"path": {"type": "string"}}},
       "strix")

@@ -97,8 +97,70 @@ def test_resume_dispatches_unfinished_as_list(api, monkeypatch):
 
     r = api.post("/api/task/t-resume/resume")
     assert r.status_code == 200, r.text
-    assert "xss" in (r.json().get("resume_modules") or [])
+    assert "xss" in (r.json().get("resume") or [])
     assert captured["task_params"]["modules"] == ["xss"]  # 只重派 unfinished，且是 list
     # 状态复位为 running
     meta = sessions.get_task_metadata("t-resume")
     assert meta["status"] == "running"
+
+
+def test_continue_all_done_injects_context_and_reruns(api, monkeypatch, _iso):
+    """continue：全 done 也能续打，且注入 ENGAGEMENT STATE 上下文（已确认的不重打）。"""
+    from pi_meta import app as app_mod
+    captured = {}
+
+    async def fake_run_real(agents, task, target, sid, task_id, tg, task_params=None, *a, **kw):
+        captured["task_text"] = task
+        captured["task_params"] = task_params
+        return []
+
+    monkeypatch.setattr(app_mod, "_run_real", fake_run_real)
+    sessions.save_task_metadata(
+        "t-cont", "http://t", "t", "m", ["RedBee"], [], "done",
+        session_id="s-cont", task_text="original task", mode="pentest")
+    # 全 done（无未完成模块）
+    sessions.save_task_state("t-cont", {"modules": {
+        "sqli": "done_with_findings", "xss": "done_clean", "xxe": "interrupted"}})
+
+    r = api.post("/api/task/t-cont/continue")
+    assert r.status_code == 200, r.text
+    # xxe 未完成 → 续打；但 continue 还会带上下文
+    assert "xxe" in (r.json().get("continue") or [])
+    assert "ENGAGEMENT STATE" in captured["task_text"]
+    assert captured["task_params"]["modules"] == ["xxe"]
+
+
+def test_continue_with_explicit_modules(api, monkeypatch, _iso):
+    """continue body.modules → 指定方向覆盖默认。"""
+    from pi_meta import app as app_mod
+    captured = {}
+
+    async def fake_run_real(agents, task, target, sid, task_id, tg, task_params=None, *a, **kw):
+        captured["task_params"] = task_params
+        captured["task_text"] = task
+        return []
+
+    monkeypatch.setattr(app_mod, "_run_real", fake_run_real)
+    sessions.save_task_metadata(
+        "t-cont2", "http://t", "t", "m", ["RedBee"], [], "done",
+        session_id="s-cont2", task_text="orig", mode="pentest")
+    sessions.save_task_state("t-cont2", {"modules": {"sqli": "done_clean"}})
+    r = api.post("/api/task/t-cont2/continue", json={"modules": "xxe,lfi", "intent": "补 XXE/LFI"})
+    assert r.status_code == 200, r.text
+    assert captured["task_params"]["modules"] == ["xxe", "lfi"]
+    assert "补 XXE/LFI" in captured["task_text"]
+    assert "ENGAGEMENT STATE" in captured["task_text"]
+
+
+def test_continue_running_rejected(api, monkeypatch, _iso):
+    from pi_meta import app as app_mod
+    class _FakeBg:
+        def done(self):
+            return False
+    app_mod._BG_TASKS["t-crun"] = _FakeBg()
+    try:
+        sessions.save_task_metadata("t-crun", "t", "", "m", ["RedBee"], [], "running")
+        r = api.post("/api/task/t-crun/continue")
+        assert r.status_code == 409
+    finally:
+        app_mod._BG_TASKS.pop("t-crun", None)

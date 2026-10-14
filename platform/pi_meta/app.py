@@ -920,6 +920,52 @@ async def task_resume(task_id: str, request: Request):
     适用被打断/预算耗尽/上轮被杀但模块没跑完的任务——不用手动开新任务。
     未完成 = checkpoint 里状态 ∈ {pending, running, interrupted} 的模块；
     无 checkpoint（老任务）→ 视为整任务重跑。"""
+    return await _reuse_task(task_id, request, "resume")
+
+
+def _unfinished_modules(task_id: str) -> list:
+    """checkpoint 里未完成（pending/running/interrupted）的模块。"""
+    state = sessions.get_task_state(task_id)
+    modules = state.get("modules") or {}
+    return [m for m, s in modules.items() if s in ("pending", "running", "interrupted")]
+
+
+def _engagement_context(task_id: str, modules: list, intent: str = "") -> str:
+    """续攻上下文：把上一轮 findings（confirmed/found/refuted）+ coverage 摘要注入任务文本，
+    让 agent"已确认/已覆盖的不重复打，往未打透/更深方向走"。"""
+    from . import board, report_builder
+    fs = board.all_findings(task_id)
+    def _titles(statuses):
+        return "; ".join(str(f.get("title"))[:70] for f in fs
+                         if str(f.get("status")).lower() in statuses)[:900]
+    confirmed = _titles({"confirmed"})
+    refuted = _titles({"false_positive", "suspect"})
+    found = _titles({"found"})
+    cov_rows = report_builder.query_coverage(task_id)
+    cov_areas = ", ".join(r.get("surface", "") for r in (cov_rows or []) if r.get("outcome") == "reported")[:600]
+    lines = ["=== ENGAGEMENT STATE (同一会话续攻——已确认/已覆盖的不要重复打) ==="]
+    if confirmed:
+        lines.append("CONFIRMED — 已确认，跳过不重测: " + confirmed)
+    if found:
+        lines.append("FOUND — 已报告未确认，可顺手补充证据但不重打: " + found)
+    if refuted:
+        lines.append("REFUTED — 已证伪/复现失败，不要再追: " + refuted)
+    if cov_areas:
+        lines.append("已覆盖面（跳过）: " + cov_areas)
+    if modules:
+        lines.append(f"本轮聚焦模块: {', '.join(modules)}")
+    if intent:
+        lines.append(f"用户续攻意图: {intent}")
+    lines.append("只打未覆盖/更深的面；复用已有 PoC；每条新发现一条干净 PoC 就下一个。")
+    return "\n\n" + "\n".join(lines)
+
+
+async def _reuse_task(task_id: str, request: Request, kind: str,
+                       body_modules=None, intent: str = "") -> dict:
+    """resume / continue 公共：复用同 task_id/session 重派，findings 累积进同一板。
+
+    kind="resume" → 只续打未完成模块；kind="continue" → 未完成继续 + 全 done 也能接着深入。
+    body_modules → 用户指定方向（continue 用）；intent → 自由文本续攻意图（continue 用）。"""
     denied = _check_auth(request)
     if denied is not None:
         return denied
@@ -928,23 +974,21 @@ async def task_resume(task_id: str, request: Request):
         return JSONResponse({"error": "unknown task_id"}, status_code=404)
     bg = _BG_TASKS.get(task_id)
     if bg is not None and not bg.done():
-        return JSONResponse({"error": "任务仍在运行，无需续跑"}, status_code=409)
-
-    state = sessions.get_task_state(task_id)
-    modules = state.get("modules") or {}
-    unfinished = [m for m, s in modules.items() if s in ("pending", "running", "interrupted")]
-    if unfinished:
-        note = f"续跑 {len(unfinished)} 个未完成模块: {','.join(unfinished)}"
+        return JSONResponse({"error": "任务仍在运行，无需续打"}, status_code=409)
+    unfinished = _unfinished_modules(task_id)
+    if body_modules:
+        pick = list(body_modules)
+        note = f"续攻（指定方向）: {','.join(pick)}"
+    elif unfinished:
+        pick = unfinished
+        note = f"续打 {len(pick)} 个未完成模块: {','.join(pick)}"
     else:
-        note = "无模块级 checkpoint（或已全完成），整任务重跑"
-    # 只用"被打断/失败"的模块续跑；done 模块已在板上，不重复打
-    resume_modules = unfinished if unfinished else None
-    task_params = {
-        "mode": meta.get("mode") or "pentest",
-        "mode_source": meta.get("mode_source") or "resume",
-    }
-    if resume_modules:
-        task_params["modules"] = resume_modules  # list（与 validate_task_params 产出一致）
+        pick = None
+        note = "模块已全部完成，在现有成果上继续深入"
+    task_params = {"mode": meta.get("mode") or "pentest",
+                   "mode_source": meta.get("mode_source") or kind}
+    if pick:
+        task_params["modules"] = pick  # list（与 validate_task_params 产出一致）
 
     # 清理可能残留的取消标记（旧 cancel 留下的），并复位到 running
     task_registry.unmark_cancelled(task_id)
@@ -958,16 +1002,42 @@ async def task_resume(task_id: str, request: Request):
     _LIVE_Q[task_id] = asyncio.Queue()
     target = meta.get("target", "")
     tg = meta.get("target_id", "")
-    task_text = meta.get("task_text", "")
+    task_text = (meta.get("task_text") or "")
+    if kind == "continue":
+        # 续攻：注入上一轮上下文（已得的不重打）
+        task_text = task_text + _engagement_context(task_id, pick or [], intent)
     agents = meta.get("agents") or list(AGENT_META.keys())
     bg = asyncio.create_task(
         _run_real(agents, task_text, target, sid, task_id, tg, task_params=task_params)
     )
     _track_bg(task_id, bg)
     task_registry.register(task_id, bg)
-    task_logs.log(task_id, "resume", note + f" params={task_params}")
-    print(f"[resume] task={task_id} {note}", flush=True)
-    return {"task_id": task_id, "status": "dispatched", "resume_modules": resume_modules or [], "note": note}
+    task_logs.log(task_id, kind, note + f" params={task_params}")
+    print(f"[{kind}] task={task_id} {note}", flush=True)
+    return {"task_id": task_id, "status": "dispatched", kind: pick or [], "note": note}
+
+
+@app.post("/api/task/{task_id}/continue")
+async def task_continue(task_id: str, request: Request):
+    """续攻（同一会话）：复用同 task_id/session，把上一轮结果作为本轮基础续打。
+
+    - 未完成模块 → 接着打；全 done 也能在现有成果上继续深入
+    - 已确认/已覆盖的跳过不重打（注入 ENGAGEMENT STATE 上下文）
+    - body 可选: {"modules": ["xxe","lfi"], "intent": "重点补 XXE/LFI"}
+    新 findings 累积进同一块板。"""
+    body = {}
+    try:
+        body = await request.json() or {}
+    except Exception:
+        body = {}
+    mods = body.get("modules")
+    if isinstance(mods, str):
+        mods = [x.strip() for x in mods.split(",") if x.strip()]
+    if mods is not None:
+        from .planner import MODULES as _MODS
+        mods = [m for m in (mods or []) if m in _MODS] or None
+    intent = str(body.get("intent") or "")[:500]
+    return await _reuse_task(task_id, request, "continue", body_modules=mods, intent=intent)
 
 
 @app.post("/api/task/{task_id}/message")

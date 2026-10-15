@@ -18,7 +18,7 @@ import httpx
 
 GATEWAY = "http://127.0.0.1:8100"
 POLL_S = 8
-FLAG_RE = re.compile(r"flag\s*\{[^}\s]{4,}", re.IGNORECASE)
+FLAG_RE = re.compile(r"(?:HTB|FLAG|flag)\s*\{[^}\s]{4,}\}", re.IGNORECASE)
 
 
 def objective_prompt(cid: str, url: str, desc: str = "") -> str:

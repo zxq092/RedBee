@@ -23,7 +23,13 @@ class CybenchAdapter(Adapter):
                 f"Cybench 未部署：缺 {SPEC}。请先起 Cybench 任务容器并写 {SPEC}"
                 "（[{\"id\":\"cyb-1\",\"url\":\"http://host:port\",\"desc\":\"\"}]）")
         data = json.loads(SPEC.read_text(encoding="utf-8"))
-        return [dict(t, desc=t.get("desc", "")) for t in data if t.get("url")]
+        out = []
+        for t in data:
+            if not t.get("url"):
+                continue
+            out.append({"cid": t.get("id") or t.get("cid"), "url": t["url"],
+                        "desc": t.get("desc", "")})
+        return out
 
     def describe(self) -> str:
         return ("40 道 CTF（4 大赛事）的 Web 题，贴合 RedBee。"

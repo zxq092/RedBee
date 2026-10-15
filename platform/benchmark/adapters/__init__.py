@@ -4,12 +4,15 @@ from __future__ import annotations
 from ..base import Adapter
 from .xben import XbenAdapter
 from .cybench import CybenchAdapter
+from .artifact import ArtifactAdapter
 from .binary import ExploitGymAdapter, ExploitBenchAdapter, CyberGymAdapter
 
 BACKENDS = {
     "xb": XbenAdapter,
     "xben": XbenAdapter,
     "cybench": CybenchAdapter,
+    "cybartifact": ArtifactAdapter,
+    "artifact": ArtifactAdapter,
     "exploitgym": ExploitGymAdapter,
     "exploitbench": ExploitBenchAdapter,
     "cybergym": CyberGymAdapter,

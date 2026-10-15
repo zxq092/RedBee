@@ -45,6 +45,10 @@ class Adapter:
         """binary 基准当前返回 False：RedBee 是 Web/CTF agent，无二进制利用能力。"""
         return True
 
+    def objective(self, tgt: dict) -> str:
+        """派发文案；子类可覆盖（如 artifact 后端的下载+脚本分析指令）。"""
+        return objective_prompt(tgt["cid"], tgt["url"], tgt.get("desc", ""))
+
 
 def _client(gateway: str, token: str = ""):
     hdrs = {"Authorization": f"Bearer {token}"} if token else {}
@@ -57,7 +61,7 @@ def dispatch(adapter: Adapter, tgt: dict, client: httpx.Client, session_prefix: 
         "session_id": f"{session_prefix}-{cid}-{int(time.time())}",
         "target": url,
         "target_id": cid,
-        "task": objective_prompt(cid, url, tgt.get("desc", "")),
+        "task": adapter.objective(tgt),
         "params": {"mode": "ctf", "task_budget": budget_s},  # 目标猎取 + 引擎预算对齐(收口 done)
     }
     r = client.post("/api/task", json=body)
@@ -110,9 +114,14 @@ def run_target(adapter: Adapter, tgt: dict, client: httpx.Client, opts) -> dict:
     task_id = dispatch(adapter, tgt, client, opts.session_prefix, opts.timeout_min * 60)
     status, elapsed = receive_done(task_id, client, opts.timeout_min * 60)
     flags = extract_flag(task_id, client)
+    known = (tgt.get("flag") or "").strip()
+    if known:
+        solved = any(known == f.strip() or known in f for f in flags)
+    else:
+        solved = bool(flags)
     return {
         "id": cid, "url": tgt["url"], "task_id": task_id,
-        "status": status, "solved": bool(flags), "flags": flags,
+        "status": status, "solved": solved, "flags": flags,
         "findings": board_findings(task_id, client),
         "elapsed_s": round(elapsed, 1),
     }

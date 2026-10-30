@@ -26,6 +26,8 @@ def main() -> int:
     ap.add_argument("--timeout-min", type=int, default=15)
     ap.add_argument("--session-prefix", default="bench")
     ap.add_argument("--token", default="")
+    ap.add_argument("--model", default="",
+                    help="本批任务专用模型（如 DeepSeek-V4-Flash/qwen3.8-27b；缺省用 backend default_model）")
     ap.add_argument("--allow-binary", action="store_true",
                     help="显式放行二进制 benchmark（否则 capability 未就绪会拒绝）")
     opts = ap.parse_args()

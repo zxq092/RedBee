@@ -5,6 +5,10 @@ from ..base import Adapter
 from .xben import XbenAdapter
 from .cybench import CybenchAdapter
 from .artifact import ArtifactAdapter
+from .cybservice import CybenchServiceAdapter
+from .pwnlocal import PwnLocalAdapter
+from .picoctf import PicoAdapter
+from .nilgiri import NilgiriAdapter
 from .binary import ExploitGymAdapter, ExploitBenchAdapter, CyberGymAdapter
 
 BACKENDS = {
@@ -13,6 +17,12 @@ BACKENDS = {
     "cybench": CybenchAdapter,
     "cybartifact": ArtifactAdapter,
     "artifact": ArtifactAdapter,
+    "cybservice": CybenchServiceAdapter,
+    "pwnlocal": PwnLocalAdapter,
+    "picoctf": PicoAdapter,
+    "nilgiri": NilgiriAdapter,
+    "pico": PicoAdapter,
+    "pwngym": PwnLocalAdapter,
     "exploitgym": ExploitGymAdapter,
     "exploitbench": ExploitBenchAdapter,
     "cybergym": CyberGymAdapter,

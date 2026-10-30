@@ -21,6 +21,13 @@ data/
 CJ
 # strix_runs/    历史 Strix 运行产物
 strix_runs/
+# ranges/        本地 cyber-range（nilgiri clone + vm-storage qcow2 镜像，>100GB）
+ranges/
+# 本地工作工件（题源 tarball / 探针草稿 / 靶场场景文件 / 机器特定 wrapper）
+platform/pp2018.tar.gz
+platform/probe_results.txt
+platform/vpn-notes.txt
+platform/run_bench.sh
 
 # ============ 开源时不纳入（第三方源码 / 内部文档 / 开发产物）============
 # distill/       第三方引擎源码（许可证，不分发）

@@ -326,6 +326,74 @@ def _truncate_tool_output(content: str) -> str:
     return content[:limit] + f"\n...[TRUNCATED: {total} chars total, kept first {limit}]"
 
 
+def _arg_error(tool_name: str, tool_def, exc: TypeError, args: dict = None) -> str:
+    """工具参数 TypeError → 给模型可操作的错误（列必填参数+实际给了什么+示例），
+    治「missing code/path 反复重试烧轮次」（forensics-5 曾 22 errors/126 tools）。"""
+    import inspect
+    try:
+        sig = inspect.signature(tool_def.handler)
+        required = [p.name for p in sig.parameters.values()
+                    if p.default is inspect.Parameter.empty
+                    and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+        # 更精确：从异常文本提取缺失参数名
+        m = re.search(r"missing \d+ required positional argument: '(\w+)'", str(exc))
+        miss = [m.group(1)] if m else required
+        ex_args = ", ".join(f'{n}="..."' for n in required[:4]) or f'{miss[0]}="..."'
+        got = sorted(k for k in (args or {}) if k not in ("container", "workdir"))
+        got_s = f" You provided: {', '.join(got[:8])}." if got else " You provided no arguments."
+        # 非"缺参数"型 TypeError（如参数类型不对：list/dict 传给字符串参数）要带原始异常，
+        # 否则会误报成"missing required X"（qwen 发 ["line1","line2"] 实测踩过）。
+        detail = "" if m else f" Cause: {type(exc).__name__}: {str(exc)[:120]}."
+        return (f"invalid arguments for {tool_name}: missing required '{', '.join(miss)}'."
+                f"{got_s}{detail} Required: {', '.join(required[:6]) or 'check schema'}. "
+                f"Call again with e.g. {{{ex_args}}}")
+    except Exception:
+        return f"invalid arguments for {tool_name}: {exc}"
+
+
+def _required_params(tool_def) -> list:
+    """工具 handler 的必填参数名（无默认值的位置/关键字参数）。"""
+    import inspect
+    try:
+        sig = inspect.signature(tool_def.handler)
+        return [p.name for p in sig.parameters.values()
+                if p.default is inspect.Parameter.empty
+                and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+    except Exception:
+        return []
+
+
+def _validate_tool_calls(tool_calls) -> list:
+    """本地预校验 tool_calls（JSON 可解析 + 必填参数齐）；返回问题清单（空=全有效）。
+    执行前拦截"空参数/坏 JSON"，供 _try_repair_calls 一轮自愈，不再烧整轮走错误回传。"""
+    problems = []
+    for i, tc in enumerate(tool_calls or []):
+        fn = (tc or {}).get("function") or {}
+        name = fn.get("name") or "?"
+        raw = fn.get("arguments")
+        if isinstance(raw, dict):
+            args = raw
+        else:
+            try:
+                args = json.loads(raw or "{}")
+            except Exception:
+                problems.append(f"#{i + 1} {name}: arguments 不是合法 JSON（原样: {str(raw)[:60]}）")
+                continue
+        if not isinstance(args, dict):
+            problems.append(f"#{i + 1} {name}: arguments 必须是 JSON 对象")
+            continue
+        tdef = get_tool(str(name))
+        if tdef is None:
+            problems.append(f"#{i + 1} {name}: unknown tool（不在你的工具列表里）")
+            continue
+        missing = [r for r in _required_params(tdef)
+                   if r not in args and r not in ("container", "workdir", "task_id")]
+        if missing:
+            problems.append(f"#{i + 1} {name}: 缺必填参数 {', '.join(missing[:5])}（你给的是: "
+                            f"{', '.join(list(args)[:8]) or '无'}）")
+    return problems
+
+
 TOOL_OUTPUT_DIR = os.path.join(DATA_DIR, "tool_outputs")
 
 
@@ -566,12 +634,23 @@ class InhouseAgent:
         self._has_recorded = False  # 是否已 submit_finding/record_coverage（收口进度自查用）
         self._text_only_streak = 0  # 连续无工具调用轮次（治"done 词不匹配→空转烧轮次"）
         self._bad_json_streak = 0  # 连续出现坏 JSON tool-call 的轮次（触发纠错提示）
+        self._arg_error_streak = 0  # 连续参数缺失 TypeError 轮次（≥2 注入纠错，治 missing code 连击）
+        self._repair_budget = int(cfg_env("HINSE_ARG_REPAIR_BUDGET", "8"))  # 空参数一轮自愈的次数预算
         self._uid = uuid.uuid4().hex[:8]  # agent 实例标识：大输出落盘 output_id 前缀（同任务多子 agent 并行不撞名）
         self._exit_reason = ""  # 主循环退出原因：text_done(自然收口) / budget(耗尽)
         self.final_summary = ""  # 预算耗尽时的强制收口总结（喂 case snapshot/报告）
         self._tool_started: Dict[str, str] = {}
         self._tool_ended: Dict[str, str] = {}
+        self._ctf_flag_watch = False  # CTF 模式（编排层 stop_check 在场时置 True）：工具流 flag 识别
+        self._flag_nudged: set = set()  # 已提醒过的 flag 值（去重防刷屏）
+        # 失败自恢复环（2026-10-28，治 m3-s2 型"文件缺失→反复 ls/cat 一小时"空转）：
+        self._repeat_streak = 0        # 连续重复调用轮次（warn 递增/无 warn 清零；每 3 次注入重定向）
+        self._enoent_seen: Dict[str, int] = {}  # 路径 → ENOENT 出现次数
+        self._enoent_nudged: set = set()        # 已注入过恢复提示的路径
+        self._stuck_nudges = 0         # 重定向注入总数（封顶 4 防刷屏）
+        self._initial_brief = ""       # 首条 user 消息快照（重注入用——上下文压缩后原始配方会丢）
         self.pending_notes: List[str] = []  # 飞行中指令（in-run steer），每轮 LLM 调用前排空
+        self._task_text: str = ""  # 任务原文（CTF 模式判断用）
 
     def inject_note(self, text: str) -> None:
         """外部注入一条用户补充指令（任务执行中）。从下一个 LLM 轮次生效。"""
@@ -734,6 +813,7 @@ class InhouseAgent:
             self.state.turn += 1
             tool_calls = msg.get("tool_calls")
             if tool_calls:
+                tool_calls = await self._try_repair_calls(tool_calls, selected)
                 self._text_only_streak = 0
                 self.messages.append({
                     "role": "assistant",
@@ -786,6 +866,7 @@ class InhouseAgent:
             self.state.turn += 1
             tool_calls = msg.get("tool_calls")
             if tool_calls:
+                tool_calls = await self._try_repair_calls(tool_calls, selected)
                 self._text_only_streak = 0
                 self.messages.append({
                     "role": "assistant",
@@ -816,6 +897,7 @@ class InhouseAgent:
     # ---- 内部 ----
 
     def _build_initial_messages(self, target: str, module: str, task: str):
+        self._task_text = task or ""
         # 分阶段工具面（skill-gated）：先按角色自动解锁专业工具，再渲染 schema + prompt
         self._auto_unlock(module)
         self.tools_schema = self._render_tools_schema()
@@ -873,6 +955,10 @@ class InhouseAgent:
     async def _docker_run(self, target_path: str = "", name: str = "") -> str:
         name = name or f"inhouse-sess-{uuid.uuid4().hex[:8]}"
         cmd = f"docker run -d --name {name} --network bridge"
+        # 网络攻击域能力：tun 设备 + NET_ADMIN（nilgiri M1.s4 起需在沙箱内建 OpenVPN 隧道
+        # 打进隔离网段；无此能力的任务不受影响——只是容器多了 tun 设备）
+        if str(cfg_env("HINSE_SANDBOX_NET_CAP", "1")) not in ("0", "false"):
+            cmd += " --cap-add NET_ADMIN --device /dev/net/tun"
         if target_path:
             cmd += f" -v {target_path}:/target"
         cmd += f" {_kali_image()} tail -f /dev/null"
@@ -913,6 +999,37 @@ class InhouseAgent:
         return ('"done"' in c or "`done`" in c or c.startswith("done"))
 
     # ---- tool 执行 ----
+
+    async def _try_repair_calls(self, tool_calls: List[Dict[str, Any]], runtime) -> List[Dict[str, Any]]:
+        """坏参数 tool-call 一轮自愈（2026-10-21）：主 LLM 返回后本地预校验，无效则立即
+        一次"仅修复"调用（不进主历史、不烧轮次/turn 计数），修复失败回落原批次走既有错误路径。
+
+        实测动机：locktalk DeepSeek 时代 57 次 "missing required X"（26% 轮次浪费）、
+        failproof 75/220 轮（34%）——错误回传+下轮重试的老路径每错一次烧一整轮。"""
+        problems = _validate_tool_calls(tool_calls)
+        if not problems or self._repair_budget <= 0:
+            return tool_calls
+        self._repair_budget -= 1
+        repair_msgs = list(self.messages) + [
+            {"role": "assistant", "content": "",
+             "tool_calls": [_openai_tool_call_obj(tc) for tc in tool_calls]},
+            {"role": "user", "content": (
+                "[ARG REPAIR] 你刚才输出的 tool_calls 参数无效，没有被执行：\n"
+                + "\n".join(f"- {p}" for p in problems)
+                + "\n请重新输出修正后的 tool_calls（保持 function calling 原格式、arguments 为完整 JSON"
+                  " 对象、含全部必填参数）。只输出修正后的 tool_calls，不要解释、不要换工具。")},
+        ]
+        try:
+            fixed = await self._chat(repair_msgs, runtime=runtime)
+        except Exception:
+            return tool_calls
+        new_calls = fixed.get("tool_calls")
+        if not new_calls or _validate_tool_calls(new_calls):
+            return tool_calls  # 修复失败 → 原批次走既有错误路径（永不更差）
+        _tlog(self.last_task_id, "tool",
+              f"[arg-repair] 一轮自愈 {len(problems)} 个坏参数调用",
+              getattr(self, "_current_module", ""))
+        return new_calls
 
     async def _exec_tool_calls(self, tool_calls: List[Dict[str, Any]],
                                    task_id: str, target: str,
@@ -957,6 +1074,10 @@ class InhouseAgent:
             else:
                 # 命令级安全管控（ARTEX intercept 移植）：deny 拦截 / ask 人工审批 / allow 白名单
                 blocked = await intercept_check(tool_name, args, task_id)
+                if blocked is None:
+                    _fab = self._fabrication_gate(tool_name, args)
+                    if _fab is not None:
+                        blocked = {"error": _fab}
                 if blocked is not None:
                     result = blocked
                 else:
@@ -966,9 +1087,17 @@ class InhouseAgent:
                     except asyncio.TimeoutError:
                         result = {"error": f"tool {tool_name} timeout after {_tmo:.0f}s — 换更快策略(如 nmap 用 -F 或限端口, 别扫全端口)"}
                     except TypeError as e:
-                        result = {"error": f"handler error: {e}"}
+                        result = {"error": _arg_error(tool_name, tool_def, e, args)}
+                        self._arg_error_streak += 1
+                        if self._arg_error_streak >= 2:
+                            self.messages.append({"role": "user", "content": (
+                                "TOOL ARGUMENTS ERROR — you are omitting required parameters. "
+                                "Read each tool's schema carefully and pass ALL required arguments "
+                                "in the 'arguments' JSON object. Do not retry the same broken call.")})
                     except Exception as e:
                         result = {"error": f"tool error: {type(e).__name__}: {e}"}
+                    else:
+                        self._arg_error_streak = 0
             self._tool_ended[call_id] = time.strftime("%Y-%m-%dT%H:%M:%S")
             print(f"[tool] {tool_name} -> {str(result)[:150].replace(chr(10), ' ')}", flush=True)
             if tool_name == "load_skill" and isinstance(result, dict) and "error" not in result:
@@ -991,6 +1120,9 @@ class InhouseAgent:
                 "tool_call_id": tc.get("id", f"call_{self.state.tool_calls}"),
                 "content": _tool_result_content(result, task_id, f"{self._uid}-{call_id}"),
             })
+            self._flag_nudge(tool_name, result)
+            self._record_raw_result(result)
+            self._stuck_recovery(tool_name, warn, result)
             if progress_cb:
                 progress_cb({"module": getattr(self, "_current_module", ""), "tool": tool_name,
                              "state": "done", "phase": "exploit", "last_type": "result",
@@ -1010,6 +1142,154 @@ class InhouseAgent:
         else:
             self._bad_json_streak = 0
         return False
+
+    def _brief_snapshot(self) -> str:
+        """惰性抓取首条 user 消息快照（≤4000 字符）。上下文压缩会把原始任务配方
+        换成占位符——m3-s2 实测 agent 因此'忘了'要重建的命令而空转。重注入用。"""
+        if not self._initial_brief:
+            try:
+                self._initial_brief = str(next(
+                    (m.get("content", "") for m in self.messages if m.get("role") == "user"), ""))[:4000]
+            except Exception:
+                pass
+        return self._initial_brief
+
+    def _stuck_recovery(self, tool_name: str, warn, result) -> None:
+        """失败自恢复环（通用件，2026-10-28）：两类机械可检的卡死形态。
+        ① 连续重复同一调用（_detect_repeating 的 warn 连击）→ 注入重定向+原始简报重注入；
+        ② 同一文件 ENOENT 反复出现 → 注入"重建而非重查"提示。
+        治 m3-s2（文件缺失 ls/cat 一小时）/m6-s1（15 连发相同 ls）型空转死。"""
+        try:
+            blob = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        except Exception:
+            blob = str(result)[:5000]
+        if not blob:
+            blob = ""
+        blob = blob[:5000]
+        # ① 重复调用连击
+        if warn:
+            self._repeat_streak += 1
+            if self._repeat_streak >= 3 and self._stuck_nudges < 4:
+                self._repeat_streak = 0
+                self._stuck_nudges += 1
+                brief = self._brief_snapshot()
+                msg = ("[SYSTEM] STUCK-LOOP DETECTED — 你已连续重复同一工具调用且无进展。停止重复。诊断三选一：\n"
+                       "1) 文件缺失？→ 按下方任务简报重跑生成/下载该文件的命令（不是再查一遍）；\n"
+                       "2) 命令失败？→ 改一个参数换一种方式重试；\n"
+                       "3) 不知道下一步？→ 重读简报按顺序执行下一指令。\n"
+                       "下一次工具调用必须与上次不同。\n")
+                if brief:
+                    msg += f"\n--- ORIGINAL TASK BRIEF (re-injected, 上下文压缩可能已丢失) ---\n{brief}\n--- END BRIEF ---"
+                self.messages.append({"role": "user", "content": msg})
+        else:
+            self._repeat_streak = 0
+        # ② 同路径 ENOENT 循环（python/ls/cat 三种报错形态）
+        import re as _re
+        for line in blob.splitlines():
+            if "No such file or directory" in line or "cannot access" in line:
+                for m in _re.finditer(r"/[A-Za-z0-9_./*?=-]+", line):
+                    p = m.group(0)
+                    self._enoent_seen[p] = self._enoent_seen.get(p, 0) + 1
+                    if self._enoent_seen[p] >= 2 and p not in self._enoent_nudged and self._stuck_nudges < 4:
+                        self._enoent_nudged.add(p)
+                        self._stuck_nudges += 1
+                        self.messages.append({"role": "user", "content": (
+                            f"[SYSTEM] FILE-MISSING LOOP: {p} 已被多次报告不存在——反复检查不会让它出现。"
+                            f"按任务简报重跑生成/下载该文件的命令；若简报说它应已预置，报告缺失并改用替代路径。"
+                            f"（不要再次检查该文件。）")})
+                break  # 每个结果只处理首个 ENOENT 行（同结果多行多为同一根因）
+
+    def _flag_nudge(self, tool_name: str, result) -> None:
+        """CTF 提交纪律兜底（2026-10-26）：工具输出里出现 flag 形态（env CTF 前缀模式或
+        UUIDv4）时注入"立即 submit_finding"提醒。同一值只提醒一次，单次结果最多提醒 2 个。
+        治 m4-s4 型"答案在工具输出里却转去写文件、预算耗尽 0 提交"。"""
+        if not getattr(self, "_ctf_flag_watch", False) or tool_name in ("submit_finding", "record_coverage"):
+        # getattr：测试常用部分构造的 agent（不走 __init__）
+            return
+        exempt = self._flag_exempt_set()
+        blob = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        if not blob or len(blob) > 300000:
+            if not blob:
+                return
+            blob = blob[:300000]
+        nudged = 0
+        for rx in _flag_nudge_patterns():
+            for m in rx.findall(blob):
+                v = (m[0] if isinstance(m, tuple) and m else m) if not isinstance(m, str) else m
+                v = str(v).strip()
+                key = v.lower()
+                if not v or key in self._flag_nudged or key in self._flag_exempt:
+                    continue
+                self._flag_nudged.add(key)
+                self.messages.append({"role": "user", "content": (
+                    f"⚠️ FLAG CANDIDATE DETECTED in tool output: {v}\n"
+                    "工具输出里出现了 flag 形态的值。如果它是本任务的目标 flag，"
+                    "立即调用 submit_finding 提交（title 简述来源，evidence 粘贴相关输出行）——"
+                    "提交是当前最高优先级动作，不要先去写文件、保存脚本或做其他探索。")})
+                nudged += 1
+                if nudged >= 2:
+                    return
+
+    def _flag_exempt_set(self) -> set:
+        """任务文本（首 user 消息）里已有的 flag 形态值——nudge 与 fabrication gate 共用豁免
+        （那是 desc 给的凭据/情报，m6-s1 实战误伤过）。惰性计算一次。"""
+        if getattr(self, "_flag_exempt", None) is not None:
+            return self._flag_exempt
+        exempt: set = set()
+        try:
+            first_user = next((m.get("content", "") for m in self.messages
+                               if m.get("role") == "user"), "")
+            for rx in _flag_nudge_patterns():
+                for v in rx.findall(str(first_user)):
+                    v = (v[0] if isinstance(v, tuple) and v else v) if not isinstance(v, str) else v
+                    if v:
+                        exempt.add(str(v).lower())
+        except Exception:
+            pass
+        self._flag_exempt = exempt
+        return exempt
+
+    def _record_raw_result(self, result) -> None:
+        """记录未截断的原始工具输出（防幻觉 gate 的比对语料）。惰性初始化（测试常部分构造 agent）。"""
+        if not hasattr(self, "_raw_tool_outputs"):
+            from collections import deque
+            self._raw_tool_outputs = deque(maxlen=200)
+        blob = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        if blob:
+            self._raw_tool_outputs.append(blob[:200000])
+
+    def _fabrication_gate(self, tool_name: str, args: dict) -> Optional[str]:
+        """反幻觉 gate（2026-10-30 Modbus 实弹）：CTF 提交里含 flag 形态但**逐字**不出现在任何
+        原始工具输出 → 拒绝。治 qwen 编造从没读到的 FLAG{...} 被 pattern 早停误判 solved。
+        至少一个提交的 flag 在原始输出中逐字存在即放行；任务文本(desc)里的值豁免。"""
+        if tool_name != "submit_finding" or not getattr(self, "_ctf_flag_watch", False):
+            return None
+        texts = " ".join(str(v) for v in (args or {}).values()
+                         if isinstance(v, (str, int, float)))
+        exempt = self._flag_exempt_set()
+        flags = []
+        for rx in _flag_nudge_patterns():
+            for m in rx.findall(texts):
+                v = (m[0] if isinstance(m, tuple) and m else m) if not isinstance(m, str) else m
+                v = str(v).strip()
+                if v and v.lower() not in exempt and v not in flags:
+                    flags.append(v)
+        if not flags:
+            return None
+        raws = getattr(self, "_raw_tool_outputs", None)
+        if not raws:
+            return None  # 还没有任何工具输出（第一步就提交）→ 无从比对，放行
+        hay = "\n".join(raws)
+        for f in flags:
+            if _flag_seen(f, hay):
+                return None
+        return ("REJECTED — FABRICATION SUSPECTED: the flag string(s) you submitted "
+                "(%s) do not appear in any of your actual tool outputs — neither verbatim "
+                "nor as a contiguous run of their ASCII/byte values (e.g. register dumps). "
+                "You must NEVER invent, reconstruct or guesser-complete a flag. Re-read your "
+                "tool outputs and copy the real flag byte-for-byte. If you have not actually "
+                "seen the flag in an output, do not submit one — report your honest status "
+                "(what you read and where the flag should be)." % ", ".join(flags[:3]))
 
     async def _exec_tool_calls_stream(self, tool_calls: List[Dict[str, Any]],
                                       task_id: str, target: str) -> AsyncIterator[Dict[str, Any]]:
@@ -1055,6 +1335,10 @@ class InhouseAgent:
             else:
                 # 命令级安全管控（ARTEX intercept 移植）：deny 拦截 / ask 人工审批 / allow 白名单
                 blocked = await intercept_check(tool_name, args, task_id)
+                if blocked is None:
+                    _fab = self._fabrication_gate(tool_name, args)
+                    if _fab is not None:
+                        blocked = {"error": _fab}
                 if blocked is not None:
                     result = blocked
                 else:
@@ -1064,9 +1348,17 @@ class InhouseAgent:
                     except asyncio.TimeoutError:
                         result = {"error": f"tool {tool_name} timeout after {_tmo:.0f}s — 换更快策略(如 nmap 用 -F 或限端口, 别扫全端口)"}
                     except TypeError as e:
-                        result = {"error": f"handler error: {e}"}
+                        result = {"error": _arg_error(tool_name, tool_def, e, args)}
+                        self._arg_error_streak += 1
+                        if self._arg_error_streak >= 2:
+                            self.messages.append({"role": "user", "content": (
+                                "TOOL ARGUMENTS ERROR — you are omitting required parameters. "
+                                "Read each tool's schema carefully and pass ALL required arguments "
+                                "in the 'arguments' JSON object. Do not retry the same broken call.")})
                     except Exception as e:
                         result = {"error": f"tool error: {type(e).__name__}: {e}"}
+                    else:
+                        self._arg_error_streak = 0
             self._tool_ended[call_id] = time.strftime("%Y-%m-%dT%H:%M:%S")
             print(f"[tool] {tool_name} -> {str(result)[:150].replace(chr(10), ' ')}", flush=True)
             if tool_name == "load_skill" and isinstance(result, dict) and "error" not in result:
@@ -1089,6 +1381,9 @@ class InhouseAgent:
                 "tool_call_id": tc.get("id", f"call_{self.state.tool_calls}"),
                 "content": _tool_result_content(result, task_id, f"{self._uid}-{call_id}"),
             })
+            self._flag_nudge(tool_name, result)
+            self._record_raw_result(result)
+            self._stuck_recovery(tool_name, warn, result)
             yield {"type": "tool", "content": tool_name, "detail": result}
         if self._bad_json_bump(bad_json):
             yield {"type": "text", "content": _BAD_JSON_REMINDER}
@@ -1172,6 +1467,11 @@ class InhouseAgent:
                     msg = (f"**CRITICAL: ~{int(pct*100)}% of budget used. Cease ALL testing immediately. "
                            "Record EVERYTHING now: submit_finding for each confirmed vuln, record_coverage for "
                            "every surface tested. Then call done. Do NOT start any new exploitation.")
+                    # CTF 模式：特别催 flag 提交
+                    if getattr(self, "_module", "") == "objective" or "CTF" in (self._task_text or ""):
+                        msg += ("\n⚠️ CTF MODE: if you have found ANY flag-like string (HTB{...}, SEKAI{...}, "
+                                "gctf{...}, hkcert22{...}, flag{...}), call submit_finding IMMEDIATELY with the "
+                                "flag as evidence. Do NOT wait until you are 100% sure — submit what you have NOW.")
                 self.messages.append({"role": "user", "content": msg})
 
     def _fail(self, err: str) -> Dict[str, Any]:
@@ -1179,7 +1479,12 @@ class InhouseAgent:
 
     async def _final_wrapup(self, runtime, task_id: str, target: str) -> str:
         """预算/轮次耗尽时的强制收口总结（借 CyberStrikeAI"max_iterations 到点自动总结"）。
-        LLM 优先；LLM 挂死/超时（正是要兜底的场景）降级为 DB 机械总结，保证总有结论。"""
+        LLM 优先；LLM 挂死/超时（正是要兜底的场景）降级为 DB 机械总结，保证总有结论。
+        收口前自动扫描对话提取 flag 并补提交（治 agent 找到 flag 但没 submit 就到点）。"""
+        try:
+            self._extract_and_submit_flags(task_id)
+        except Exception as e:
+            print(f"[wrapup] flag 提取失败: {str(e)[:100]}", flush=True)
         try:
             self._compact_messages()
             msgs = list(self.messages) + [{"role": "user", "content": _WRAPUP_PROMPT}]
@@ -1210,6 +1515,67 @@ class InhouseAgent:
             lines.append("- Coverage: " + ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items())))
         lines.append("- Remaining budget did not allow further testing; untested surfaces stay open.")
         return "\n".join(lines)[:4000]
+
+    # ---- CTF wrapup 自动 flag 提取（2026-10-17）----
+    _FLAG_RE = re.compile(
+        r"(?:HTB|FLAG|GCTF|SEKAI|CTF|picoCTF|hkcert2{0,2}|HKN|Glacier|DUCTF|flag)\{[^}\s]{4,}\}",
+        re.IGNORECASE,
+    )
+
+    def _extract_and_submit_flags(self, task_id: str) -> None:
+        """收口时扫描对话中出现过的 flag 模式，若 findings 为空则自动 submit_finding。
+        治"agent 找到了 flag 但没调 submit_finding 就到点"的系统性丢分。"""
+        try:
+            findings, _ = self._case_db_rows()
+            if findings:
+                return  # 已有 finding，不用补
+        except Exception:
+            pass
+        seen: set = set()
+        for msg in self.messages:
+            content = msg.get("content") or ""
+            if not content:
+                continue
+            for m in self._FLAG_RE.finditer(content):
+                flag = m.group(0)
+                if flag in seen:
+                    continue
+                seen.add(flag)
+                # 过滤明显的假 flag（占位/示例）
+                low = flag.lower()
+                if any(x in low for x in ("this_is_fake", "example", "placeholder", "xxxx", "your_flag")):
+                    continue
+                # 直接调 submit_finding 工具函数
+                try:
+                    from agents.tools import tool_submit_finding
+                    import asyncio as _aio
+                    result = _aio.get_event_loop().run_until_complete(
+                        tool_submit_finding(
+                            title=f"[auto-extracted] CTF flag {flag[:20]}...",
+                            poc=f"Flag extracted from agent conversation: {flag}",
+                            evidence=flag,
+                            asset=self.last_task_id or "",
+                            severity="high", vuln_class="ctf_flag",
+                            confidence="high", task_id=task_id,
+                        )
+                    )
+                    if result.get("accepted"):
+                        print(f"[wrapup] auto-submitted flag: {flag[:30]}...", flush=True)
+                except Exception as e:
+                    # asyncio 可能已在运行中，用 create_task
+                    try:
+                        from agents.tools import tool_submit_finding
+                        asyncio.ensure_future(tool_submit_finding(
+                            title=f"[auto-extracted] CTF flag {flag[:20]}...",
+                            poc=f"Flag extracted from agent conversation: {flag}",
+                            evidence=flag,
+                            asset=self.last_task_id or "",
+                            severity="high", vuln_class="ctf_flag",
+                            confidence="high", task_id=task_id,
+                        ))
+                        print(f"[wrapup] auto-submitted flag (async): {flag[:30]}...", flush=True)
+                    except Exception:
+                        pass
 
     def _finalize(self, task_id: str, target: str, runtime: ModelRuntime) -> Dict[str, Any]:
         findings, coverage = self._case_db_rows()
@@ -1298,6 +1664,53 @@ _BAD_JSON_REMINDER = (
 
 _REPEAT_WINDOW = 5
 _REPEAT_THRESHOLD = 3
+
+# CTF 工具流 flag 识别（_flag_nudge 用）：env CTF 前缀模式 + UUIDv4，惰性编译（env 热读）
+_FLAG_NUDGE_CACHE: Optional[List["re.Pattern"]] = None
+
+def _flag_nudge_patterns() -> List["re.Pattern"]:
+    global _FLAG_NUDGE_CACHE
+    if _FLAG_NUDGE_CACHE is None:
+        pats: List["re.Pattern"] = []
+        env_pat = (cfg_env("PIMETA_CTF_FLAG_PATTERN") or "").strip()
+        if env_pat:
+            try:
+                pats.append(re.compile(env_pat))
+            except re.error:
+                pass
+        # UUIDv4（nilgiri 等 UUID-flag 靶场；version 位=4，variant 位 8/9/a/b）
+        pats.append(re.compile(
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.I))
+        _FLAG_NUDGE_CACHE = pats
+    return _FLAG_NUDGE_CACHE
+
+def _flag_seen(flag: str, hay: str) -> bool:
+    """flag 是否"被看到"：①逐字出现，或 ②其字节值作为连续整数序列出现在输出里
+    （寄存器/字节 dump 解码场景：agent 读到 [70,76,65,71,123,...] 在 LLM 里解成
+    FLAG{...}——逐字不在输出，但字节序列在 → 合法，不该误杀）。"""
+    if flag in hay:
+        return True
+    target = [ord(c) for c in flag]
+    n = len(target)
+    if n < 4 or n > 512:
+        return False
+    for raw in (x for x in hay.split("\n") if any(ch.isdigit() for ch in x)):
+        if len(raw) > 1_000_000:
+            continue  # 超长行跳过字节序列扫描（防病态慢；逐字检查已覆盖）
+        nums = []
+        for m in re.finditer(r"0x[0-9a-fA-F]{1,4}\b|\b\d{1,5}\b", raw):
+            tok = m.group(0)
+            try:
+                nums.append(int(tok, 16) if tok.lower().startswith("0x") else int(tok))
+            except ValueError:
+                continue
+        if len(nums) < n:
+            continue
+        first = target[0]
+        for i in range(len(nums) - n + 1):
+            if nums[i] == first and nums[i:i + n] == target:
+                return True
+    return False
 
 def _detect_repeating(recent: List[str], tool_call_str: str) -> Optional[str]:
     if len(recent) >= _REPEAT_WINDOW:

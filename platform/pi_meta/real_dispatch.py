@@ -100,8 +100,10 @@ TASK_PARAM_SPECS = {
     "skip_recon": ("bool", None, None),
     "force_all_modules": ("bool", None, None),
     "model": ("str", None, None),  # 本任务专用模型（排第一候选，挂则降级回队列）
+    "dump_trajectory": ("bool", None, None),  # 数据工厂：子 agent 完整 messages 落盘 data/trajectories/
     "modules": ("modules", None, None),  # 显式模块列表（逗号分隔，覆盖 planner 选取）
     "mode": ("mode", None, None),  # 任务模式：ctf(目标猎取) | pentest(默认，OWASP 类 fan-out)
+    "steps": ("steps", None, None),  # 编排器分步执行：[{name,prompt,wait_s}] 顺序子任务（ctf 模式专用）
 }
 
 
@@ -153,6 +155,30 @@ def validate_task_params(raw) -> tuple[dict, list[str]]:
                     errs.append(f"{k} 无效（合法模块: {'/'.join(_MODS)}；未知: {','.join(bad) or '(空)'}）")
                     continue
                 out[k] = names
+            elif kind == "steps":
+                if not isinstance(v, list) or not v:
+                    errs.append(f"{k} 必须是非空数组 [{chr(123)}name,prompt,wait_s{chr(125)}]")
+                    continue
+                steps = []
+                bad_step = False
+                for item in v:
+                    if not isinstance(item, dict):
+                        bad_step = True
+                        break
+                    name = str(item.get("name") or "").strip()
+                    prompt = str(item.get("prompt") or "").strip()
+                    if not name or not prompt:
+                        bad_step = True
+                        break
+                    try:
+                        wait_s = max(0, min(600, int(item.get("wait_s") or 0)))
+                    except (TypeError, ValueError):
+                        wait_s = 0
+                    steps.append({"name": name[:60], "prompt": prompt, "wait_s": wait_s})
+                if bad_step or not steps:
+                    errs.append(f"{k} 每步必须含非空 name 与 prompt")
+                    continue
+                out[k] = steps
             else:
                 iv = int(v)
                 if (lo is not None and iv < lo) or (hi is not None and iv > hi):
@@ -194,6 +220,10 @@ async def _inhouse_run(text: str, target: str, runtime: ResolvedRuntime,
         explicit_modules = (task_params or {}).get("modules")
         if explicit_modules:
             modules = explicit_modules
+        elif str((task_params or {}).get("mode", "")).lower() == "ctf":
+            # CTF/目标猎取模式：单 objective 模块（注入 ctf-hunt skill + objective 框架），
+            # 别走 planner 的 OWASP Web 模块——那会让 agent 当普通渗透打（曾致 ctf-hunt 从未加载）
+            modules = ["objective"]
         else:
             modules = planner.modules_for(target, text, target_id,
                                           max_modules=recipe.get("max_modules"))

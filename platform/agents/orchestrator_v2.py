@@ -131,8 +131,11 @@ async def _task_container_ensure(task_id: str) -> str:
     out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
     if out.decode().strip():
         return name
+    # 与 executor._docker_run 同款网络攻击域能力（tun/NET_ADMIN，nilgiri s4 起需要）
+    _caps = "" if str(cfg_env("HINSE_SANDBOX_NET_CAP", "1")) in ("0", "false") \
+        else " --cap-add NET_ADMIN --device /dev/net/tun"
     proc = await asyncio.create_subprocess_shell(
-        f"docker run -d --name {name} --network bridge {_kali_image()} tail -f /dev/null",
+        f"docker run -d --name {name} --network bridge{_caps} {_kali_image()} tail -f /dev/null",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
     if proc.returncode != 0:
@@ -319,17 +322,32 @@ async def _kb_brief(module: str) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
+def _steps_task_text(task: str, idx: int, steps: List[dict], step_context: List[str]) -> str:
+    """分步执行模式：第 idx 步的子任务文本 = 原目标 + 步骤指令 + 前序结果摘要。"""
+    st = steps[idx]
+    n = len(steps)
+    text = (f"{task}\n\n=== ORCHESTRATOR STEP {idx + 1}/{n}: {st['name']} ===\n{st['prompt']}\n"
+            f"（编排器已把目标分解为 {n} 个顺序步骤，当前是第 {idx + 1} 步。"
+            f"只完成本步描述的内容，做完简短报告即收口；不要尝试后续步骤。"
+            f"共享沙箱/宿主 /tmp 的文件与后台进程跨步存活，可直接复用前序产物。）")
+    if step_context:
+        text += "\n\n=== 前序步骤结果 ===\n" + "\n".join(step_context)
+    return text
+
+
 async def _run_child(module: str, target: str, task: str, task_id: str,
                        intel_block: str, runtime: ModelRuntime,
                        progress_cb=None, child_max_turns: int = CHILD_MAX_TURNS,
                        shared_container: str = "", task_budget: int = 0,
-                       stop_check=None) -> _ChildResult:
+                       stop_check=None, dump_trajectory: bool = False) -> _ChildResult:
     """跑一个模块子 agent：有界 mini-loop，带父 intel（pre-recon+recon 交付物）为背景。
 
     stop_check: 可选回调，每次工具执行后调用；返回 truthy → 立即收口（CTF flag 早停用）。
     """
     child = InhouseAgent(runtime=runtime)
     child.last_task_id = task_id  # 执行日志归属（llm/tool/steer 埋点用）
+    if stop_check is not None:
+        child._ctf_flag_watch = True  # CTF 模式：工具流 flag 识别提醒（提交纪律兜底）
     child.MAX_TURNS = child_max_turns  # type: ignore
     child.workdir = f"/work/{module}"
     child._build_initial_messages(target, module, task)
@@ -452,6 +470,23 @@ async def _run_child(module: str, target: str, task: str, task_id: str,
 
     await child._cleanup()
     task_registry.unregister_agent(task_id, child)
+    if dump_trajectory:
+        # 数据工厂轨迹导出：完整 messages 落盘（SFT/DPO 原料）。绝不影响任务本体。
+        try:
+            import time as _time
+            _traj_dir = os.path.join(_CFG_DATA_DIR, "trajectories")
+            os.makedirs(_traj_dir, exist_ok=True)
+            _path = os.path.join(_traj_dir, f"{task_id}__{module}.json")
+            with open(_path, "w", encoding="utf-8") as _f:
+                json.dump({
+                    "task_id": task_id, "module": module, "target": target,
+                    "ts": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "turns": child.state.turn, "tool_calls": child.state.tool_calls,
+                    "messages": child.messages,
+                }, _f, ensure_ascii=False, indent=1)
+            _tlog(task_id, "trajectory", f"轨迹导出 {_path}（{len(child.messages)} msgs）", module)
+        except Exception as _e:
+            print(f"[trajectory] 导出失败(忽略): {type(_e).__name__}: {_e}", flush=True)
     findings = _collect_findings(task_id)
     return _ChildResult(module, findings, coverage=_list_coverage(task_id))
 
@@ -516,14 +551,19 @@ def _flag_hit(task_id: str, before_ids: set) -> Optional[Dict[str, Any]]:
 
     只认 flag 模式匹配——旁证 finding（如默认凭据）不触发早停，
     防"先找到旁证就假成功收口"（xben-002 R1 教训）。
+    显式排除占位/假 flag（DUMMY/f4k3/example 等）——防源码里的 dummy 被当真早停
+    （walking 源码含 gctf{DUMMY_FLAG} 且注明 "# not the flag"，曾致 194s 假早停）。
     """
     pat = _ctf_flag_pattern()
+    fake = re.compile(r"dummy|f4k3|fake|example|placeholder|test1ng|not.?the.?flag",
+                      re.IGNORECASE)
     for f in _collect_findings(task_id):
         if f.get("id") in before_ids:
             continue
         blob = f"{f.get('title', '')} {f.get('poc', '')} {f.get('evidence', '')}"
-        if pat.search(blob):
-            return f
+        for m in pat.finditer(blob):
+            if not fake.search(m.group(0)):
+                return f
     return None
 
 
@@ -585,9 +625,22 @@ class OrchestratorV2:
         # CTF/目标猎取模式：单 objective 猎手，不做 OWASP 类 fan-out（判定在 app.resolve_mode，
         # 经 task_params.mode 进 recipe；pentest=默认，行为零变化）
         ctf_mode = str(recipe.get("mode") or "pentest") == "ctf"
+        steps_plan = []
         if ctf_mode:
-            modules = ["objective"]
+            # 分步执行模式（2026-10-26）：把长利用链拆成顺序子任务，每步独立子 agent
+            # （上下文不腐化）+ 引擎级等待（wait_s 不烧模型轮次）+ 步间结果传递。
+            # 触发：params.steps=[{name,prompt,wait_s}]（benchmark spec 的 plan 字段）。
+            _sp = recipe.get("steps")
+            if isinstance(_sp, list) and _sp:
+                steps_plan = _sp
+                # 步骤计划本身就是编排产物，侦察相位冗余且会吃掉预算 → 直接跳过
+                skip_recon = True
+        if ctf_mode:
+            modules = [f"step{i + 1}" for i in range(len(steps_plan))] if steps_plan else ["objective"]
             force_all = True
+            # CTF 下让时间预算先耗尽：DeepSeek 下 40 轮 150s 就打完 → 提前 objective unmet
+            # （曾致 flecksofgold 152s/shuffled 218s 早收口）；200 轮 ≈ 慢 LLM 也不会到
+            child_max_turns = max(child_max_turns, int(cfg_env("HINSE_CTF_MAX_TURNS", "200")))
         resolved_runtime = runtime if isinstance(runtime, ResolvedRuntime) else None
         selected = resolved_runtime.runtime if resolved_runtime is not None else runtime
         runtime_id = resolved_runtime.runtime_id if resolved_runtime is not None else getattr(selected, "runtime_id", "")
@@ -658,9 +711,10 @@ class OrchestratorV2:
                 results.append({"phase": "root-decide", "dispatch": [], "stop": True, "reason": "cancelled"})
                 emit("root-decide", "skip", "cancelled")
             elif ctf_mode:
-                dispatch_modules = ["objective"]
+                dispatch_modules = ([f"step{i + 1}" for i in range(len(steps_plan))]
+                                    if steps_plan else ["objective"])
                 decision = {"ok": True, "modules": dispatch_modules, "stop": False,
-                            "reason": "ctf-objective-hunt"}
+                            "reason": "ctf-steps-plan" if steps_plan else "ctf-objective-hunt"}
                 self.live["root_decision"] = decision
                 results.append({"phase": "root-decide", "dispatch": dispatch_modules, "stop": False,
                                 "reason": "ctf-objective-hunt"})
@@ -689,6 +743,45 @@ class OrchestratorV2:
             elif decision.get("stop") or not dispatch_modules:
                 exploit_res = []
                 emit("exploit", "skip", "root decided no further exploitation")
+            elif steps_plan:
+                # 分步执行：顺序单模块子 agent + 引擎级等待 + 步间结果传递。
+                # 每步一个独立 child（上下文干净），共享任务沙箱（/work、/tmp、后台进程跨步存活）。
+                exploit_res = []
+                step_context: List[str] = []
+                _steps_stop = False
+                for _si, _st in enumerate(steps_plan):
+                    if task_registry.is_cancelled(task_id):
+                        break
+                    _m = f"step{_si + 1}"
+                    _before = _finding_ids(task_id)
+                    emit("exploit", "start", f"step {_si + 1}/{len(steps_plan)}: {_st['name']}")
+                    _step_task = _steps_task_text(task, _si, steps_plan, step_context)
+                    _sres = await self._phase_exploit(_step_task, target, task_id, [_m], intel_block,
+                                                      selected, progress_cb,
+                                                      max_parallel=1,
+                                                      child_max_turns=child_max_turns,
+                                                      shared_container=shared_container,
+                                                      task_budget=task_budget,
+                                                      module_retry_delay=retry_delay,
+                                                      stop_check=stop_check,
+                                                      dump_trajectory=bool(recipe.get("dump_trajectory")))
+                    exploit_res.extend(_sres)
+                    # 步间摘要：新 findings 标题 + 子结果状态（给下一步当上下文）
+                    _new = [f for f in _collect_findings(task_id) if f.get("id") not in _before]
+                    _titles = "; ".join((f.get("title") or "")[:60] for f in _new) or "无新 finding"
+                    _err = (_sres[0].get("error") if _sres else "") or ""
+                    step_context.append(f"step{_si + 1}（{_st['name']}）: {_titles}"
+                                        + (f"（子agent错误: {_err[:80]}）" if _err else ""))
+                    if stop_check and stop_check():
+                        _tlog(task_id, "phase", "flag 早停：步骤链提前收口")
+                        _steps_stop = True
+                        break
+                    _w = int(_st.get("wait_s") or 0)
+                    if _w and _si < len(steps_plan) - 1 and not task_registry.is_cancelled(task_id):
+                        _tlog(task_id, "phase", f"步骤间引擎等待 {_w}s（{_st['name']} → 下一步）")
+                        await asyncio.sleep(_w)
+                if _steps_stop and stop_check:
+                    pass  # 早停已收口；objective_met 判定沿用 ctf 分支
             else:
                 exploit_res = await self._phase_exploit(task, target, task_id, dispatch_modules,
                                                          intel_block, selected, progress_cb,
@@ -697,7 +790,8 @@ class OrchestratorV2:
                                                          shared_container=shared_container,
                                                          task_budget=task_budget,
                                                          module_retry_delay=retry_delay,
-                                                         stop_check=stop_check)
+                                                         stop_check=stop_check,
+                                                         dump_trajectory=bool(recipe.get("dump_trajectory")))
             results.append({"phase": "exploit", "ok": True, "children": exploit_res})
 
             # --- phase 4b: coverage 补测循环（派了却没 coverage 的 gap 模块 → 续派补测）---
@@ -970,7 +1064,8 @@ class OrchestratorV2:
                                 shared_container: str = "",
                                 task_budget: int = 1800,
                                 module_retry_delay: int = 60,
-                                stop_check=None) -> List[dict]:
+                                stop_check=None,
+                                dump_trajectory: bool = False) -> List[dict]:
         sem = asyncio.Semaphore(max_parallel)
         if progress_cb:
             self.live["slots"] = {i: {"agent": "RedBee", "module": m, "state": "queued"}
@@ -991,7 +1086,8 @@ class OrchestratorV2:
                                       child_max_turns=child_max_turns,
                                       shared_container=shared_container,
                                       task_budget=task_budget,
-                                      stop_check=stop_check)
+                                      stop_check=stop_check,
+                                      dump_trajectory=dump_trajectory)
                 # 死模块自动重试：LLM 全挂时冷却后整模块重派 1 次（治 2026-09-24 实测
                 # 7/18 模块因 all runtimes failed 直接蒸发）；其他错误不重试；delay=0 禁用
                 if (r.error and _is_llm_dead(r.error) and module_retry_delay > 0
@@ -1009,7 +1105,8 @@ class OrchestratorV2:
                                               child_max_turns=child_max_turns,
                                               shared_container=shared_container,
                                               task_budget=task_budget,
-                                              stop_check=stop_check)
+                                              stop_check=stop_check,
+                                              dump_trajectory=dump_trajectory)
                 # checkpoint 与 progress_cb 解耦：即使调用方不传 progress_cb，模块终态也要落库，
                 # 否则 resume 会把所有打完的模块当"未完成"整重跑。
                 _ckpt_module(task_id, m,

@@ -474,7 +474,23 @@ async def _probe_target(target: str, timeout: float = 5.0) -> tuple:
             r = await client.get(url)
             return True, f"HTTP {r.status_code}"
     except Exception as e:
-        return False, f"{type(e).__name__}: {str(e)[:140]}"
+        # HTTP 失败时回退 TCP connect（裸 TCP 服务：nc/xinetd/socat 等不讲 HTTP）
+        import asyncio as _a
+        import urllib.parse as _up
+        try:
+            parsed = _up.urlparse(url if "://" in url else "http://" + url)
+            host = parsed.hostname or target.strip().split(":")[0]
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            reader, writer = await _a.wait_for(
+                _a.open_connection(host, port), timeout=timeout)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return True, f"TCP {host}:{port} open（非 HTTP 服务）"
+        except Exception:
+            return False, f"{type(e).__name__}: {str(e)[:140]}"
 
 
 async def _run_real(agents, task, target, sid, task_id, target_id: str = "", task_params: dict = None):

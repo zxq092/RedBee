@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -240,17 +241,23 @@ Identify upload endpoints allowing arbitrary file upload without proper validati
 # 1. 文件系统 + Shell
 # ---------------------------------------------------------------------------
 
-@tool("read", "Read file contents.",
-      {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}},
+@tool("read", "Read file contents (sandbox file first when a task sandbox exists, else host).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"},
+                                        "container": {"type": "string"}}},
       "shannon")
-async def tool_read(path: str, limit: int = 10000) -> Dict[str, Any]:
+async def tool_read(path: str, limit: int = 10000, container: str = "") -> Dict[str, Any]:
+    # 沙箱文件优先：agent 的终端/工具都在容器里，若只读宿主会一直 ENOENT（反复踩坑）
+    if container:
+        r = await tool_terminal(f"cat {shlex.quote(path)}", container=container)
+        if r.get("returncode") == 0:
+            return {"content": (r.get("stdout") or "")[:limit], "path": path, "where": "sandbox"}
     try:
         with open(path) as f:
-            return {"content": f.read()[:limit], "path": path}
+            return {"content": f.read()[:limit], "path": path, "where": "host"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "container_said": (r.get("stderr", "")[:200] if container else "")}
 
-@tool("bash", "Execute a shell command.",
+@tool("bash", "Run a shell command on the ANALYST HOST (not the sandbox). The host has NO offensive toolchain: no nmap/sqlmap/pymodbus/scapy/impacket/wordlists. Use `terminal` or `exec_command` for any security tooling.",
       {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer"}}},
       "shannon")
 async def tool_bash(cmd: str, timeout: int = 120) -> Dict[str, Any]:
@@ -282,17 +289,31 @@ async def tool_edit(path: str, old_str: str, new_str: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
-@tool("write", "Write content to a file.",
-      {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}},
+@tool("write", "Write content to a file (writes into the task sandbox AND the host when a sandbox exists).",
+      {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"},
+                                        "container": {"type": "string"}}},
       "shannon")
-async def tool_write(path: str, content: str) -> Dict[str, Any]:
+async def tool_write(path: str, content: str, container: str = "") -> Dict[str, Any]:
+    # 同时落沙箱（工具面）+ 宿主（http_request/serve 面）：agent 不必猜哪边可见
+    out: Dict[str, Any] = {"ok": False, "path": path}
+    if container:
+        b64 = base64.b64encode(content.encode()).decode()
+        d = shlex.quote(os.path.dirname(path) or ".")
+        r = await tool_terminal(f"mkdir -p {d} && echo {b64} | base64 -d > {shlex.quote(path)}",
+                               container=container)
+        out["sandbox"] = r.get("returncode") == 0
+        if not out["sandbox"]:
+            out["sandbox_error"] = (r.get("stderr") or "")[:200]
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-        return {"ok": True, "path": path}
+        out["host"] = True
+        out["ok"] = True
     except Exception as e:
-        return {"error": str(e)}
+        out["host_error"] = str(e)[:200]
+        out["ok"] = bool(out.get("sandbox"))
+    return out
 
 @tool("grep", "Search for a pattern in files.",
       {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}}},
@@ -645,7 +666,13 @@ _SKILL_ALIAS = {"sqli": "sql-injection", "xss": "xss", "auth": "authentication-j
                  "upload": "insecure-file-uploads", "ssrf": "ssrf", "rce": "rce",
                  "lfi": "path-traversal-lfi-rfi", "xxe": "xxe", "xpath": "xpath-injection",
                  "pwn": "binary-exploitation", "csrf": "csrf", "idor": "idor",
-                 "llm": "llm-applications", "objective": "ctf-hunt"}
+                 "llm": "llm-applications", "objective": "ctf-hunt",
+                 # OT/ICS 与网络设备域（模块/别名直取 skill）
+                 "ot": "ot-ics-security", "ics": "ot-ics-security",
+                 "scada": "ot-ics-security", "plc": "ot-ics-security",
+                 "routing": "routing-protocols", "bgp": "routing-protocols",
+                 "ospf": "routing-protocols", "network": "network-infrastructure",
+                 "snmp": "network-infrastructure", "lan": "network-infrastructure"}
 
 # 护栏铁律：poc payload 绝不进 LLM context（DeepSeek-V4-Flash 对 SQLi 载荷硬 500）。
 # skill 含攻击载荷（UNION SELECT/SLEEP/LOAD_FILE/xp_cmdshell/绕过技巧等）会触发内容过滤 500。
@@ -1286,7 +1313,7 @@ async def tool_subtask_list(items: List[str]) -> Dict[str, Any]:
 async def tool_subtask_patch(action: str, index: int = 0, content: str = "") -> Dict[str, Any]:
     return {"ok": True, "action": action, "index": index}
 
-@tool("terminal", "Execute a command in a Docker sandbox container.",
+@tool("terminal", "Run a command INSIDE the Kali sandbox container (container auto-injected). This is where nmap, sqlmap, nikto, hydra, pymodbus, scapy, snmpwalk, tcpdump, impacket, frr/vtysh, wordlists and pwntools live. Default choice for security tooling.",
       {"type": "object", "properties": {"cmd": {"type": "string"}, "container": {"type": "string"},
                                         "workdir": {"type": "string", "description": "working dir inside the container (auto-injected per agent; use /work/shared for reusable artifacts)"}}},
       "pentagi")
@@ -1398,7 +1425,7 @@ async def tool_search_guide(query: str, limit: int = 3) -> Dict[str, Any]:
 # 缺失工具补齐
 # ---------------------------------------------------------------------------
 
-@tool("exec_command", "Execute a shell command and return output.",
+@tool("exec_command", "Run a command INSIDE the Kali sandbox container (container auto-injected). Same toolchain as `terminal`; `bash` is host-only and lacks security tools.",
       {"type": "object", "properties": {"command": {"type": "string"}, "container": {"type": "string"},
                                         "workdir": {"type": "string"}}},
       "strix")
@@ -1406,12 +1433,55 @@ async def tool_exec_command(command: str, container: str = "", workdir: str = ""
     result = await tool_terminal(command, container=container, workdir=workdir) if container else await tool_bash(command)
     return {"output": result.get("stdout", ""), "exit_code": result.get("returncode")}
 
-@tool("python", "Execute a Python code snippet.",
+def _coerce_code(code) -> str:
+    """模型偶尔把代码发成数组/嵌套对象而不是字符串（qwen 实测发 ["line1","line2"]）。
+    统一成字符串，免得 handler 里 `"\\n" not in code` 抛 TypeError 被误报成"缺参数"。"""
+    if isinstance(code, str):
+        return code
+    if isinstance(code, (list, tuple)):
+        return "\n".join(x if isinstance(x, str) else json.dumps(x) for x in code)
+    if isinstance(code, dict):
+        for k in ("code", "text", "source", "script", "content", "snippet"):
+            v = code.get(k)
+            if isinstance(v, str):
+                return v
+        return json.dumps(code)
+    return "" if code is None else str(code)
+
+
+def _denormalize_code(code) -> str:
+    """还原模型双转义的字面 \\n/\\t（qwen/DeepSeek 常混发真换行+字面 \\n）。
+
+    只在"原代码编译不过、替换后编译过"时才替换——正常代码零影响。
+    """
+    code = _coerce_code(code)
+    if "\\n" not in code:
+        return code
+    try:
+        compile(code, "<code>", "exec")
+        return code
+    except SyntaxError:
+        pass
+    fixed = code.replace("\\n", "\n").replace("\\t", "\t")
+    try:
+        compile(fixed, "<code>", "exec")
+        return fixed
+    except SyntaxError:
+        return code
+
+
+def _python_cmd(code) -> str:
+    """构造 shell 命令。⚠️ 不能用 json.dumps：它把换行转成 \\n 转义串，bash 双引号不还原，
+    python 收到字面反斜杠+n 必 SyntaxError（多行代码全军覆没）。shlex.quote 保留真换行。"""
+    return "python3 -c " + shlex.quote(_denormalize_code(code))
+
+
+@tool("python", "Run a Python snippet INSIDE the Kali sandbox (pymodbus, scapy, impacket, pwntools, z3, pycryptodome installed). Use this for protocol clients / exploit scripts instead of shelling out on the host.",
       {"type": "object", "properties": {"code": {"type": "string"}, "container": {"type": "string"},
                                         "workdir": {"type": "string"}}},
       "strix")
 async def tool_python(code: str, container: str = "", workdir: str = "") -> Dict[str, Any]:
-    cmd = f"python3 -c {json.dumps(code)}"
+    cmd = _python_cmd(code)
     result = await tool_terminal(cmd, container=container, workdir=workdir) if container else await tool_bash(cmd)
     return {"output": result.get("stdout", ""), "stderr": result.get("stderr", "")}
 

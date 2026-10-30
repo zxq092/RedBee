@@ -151,7 +151,7 @@ async def test_run_ctf_dispatches_single_objective(pimeta_db, monkeypatch):
 
     async def fake_run_child(module, target, task, task_id, intel_block, runtime,
                              progress_cb=None, child_max_turns=40, shared_container="",
-                             task_budget=0, stop_check=None):
+                             task_budget=0, stop_check=None, dump_trajectory=False):
         captured["modules"].append(module)
         captured["stop_check"] = stop_check
         return ov2._ChildResult(module, [], error="")
@@ -182,7 +182,7 @@ async def test_run_pentest_unchanged_no_stop_check(pimeta_db, monkeypatch):
 
     async def fake_run_child(module, target, task, task_id, intel_block, runtime,
                              progress_cb=None, child_max_turns=40, shared_container="",
-                             task_budget=0, stop_check=None):
+                             task_budget=0, stop_check=None, dump_trajectory=False):
         captured["modules"].append(module)
         captured["stop_check"] = stop_check
         return ov2._ChildResult(module, [], error="")
@@ -213,7 +213,7 @@ async def test_run_ctf_objective_met_via_flag_finding(pimeta_db, monkeypatch):
 
     async def fake_run_child(module, target, task, task_id, intel_block, runtime,
                              progress_cb=None, child_max_turns=40, shared_container="",
-                             task_budget=0, stop_check=None):
+                             task_budget=0, stop_check=None, dump_trajectory=False):
         _insert_finding(task_id, "IDOR receipt leaks flag",
                         "FLAG{deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef}")
         assert stop_check() is not None              # 贴板后判据即命中

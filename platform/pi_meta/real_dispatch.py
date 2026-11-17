@@ -104,6 +104,7 @@ TASK_PARAM_SPECS = {
     "modules": ("modules", None, None),  # 显式模块列表（逗号分隔，覆盖 planner 选取）
     "mode": ("mode", None, None),  # 任务模式：ctf(目标猎取) | pentest(默认，OWASP 类 fan-out)
     "steps": ("steps", None, None),  # 编排器分步执行：[{name,prompt,wait_s}] 顺序子任务（ctf 模式专用）
+    "expected_flag": ("token", None, None),  # 本任务真值（benchmark spec 的 flag）：CTF 早停只认它，防旧数据假 flag 收口
 }
 
 
@@ -138,6 +139,11 @@ def validate_task_params(raw) -> tuple[dict, list[str]]:
                         errs.append(f"model 不在已配置队列（可用: {'/'.join(queue)}）")
                         continue
                 out[k] = v
+            elif kind == "token":
+                if not isinstance(v, str) or not (4 <= len(v.strip()) <= 200) or any(c in v for c in "\r\n\t"):
+                    errs.append(f"{k} 格式错误（4-200 字符单行字符串）")
+                    continue
+                out[k] = v.strip()
             elif kind == "mode":
                 mv = str(v).strip().lower()
                 if mv not in ("ctf", "pentest"):

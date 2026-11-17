@@ -133,7 +133,7 @@ async def _task_container_ensure(task_id: str) -> str:
         return name
     # 与 executor._docker_run 同款网络攻击域能力（tun/NET_ADMIN，nilgiri s4 起需要）
     _caps = "" if str(cfg_env("HINSE_SANDBOX_NET_CAP", "1")) in ("0", "false") \
-        else " --cap-add NET_ADMIN --device /dev/net/tun"
+        else " --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN --device /dev/net/tun"
     proc = await asyncio.create_subprocess_shell(
         f"docker run -d --name {name} --network bridge{_caps} {_kali_image()} tail -f /dev/null",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -650,7 +650,25 @@ class OrchestratorV2:
         start = time.monotonic()
         before_ids = _finding_ids(task_id)
         # CTF 早停判据：新 finding 匹配 flag 模式 → 立即收口（每次工具执行后查；旁证 finding 不触发）
-        stop_check = (lambda: _flag_hit(task_id, before_ids) is not None) if ctf_mode else None
+        # 2026-11-16 nilgiri m10 实测：自动提取会把"别的任务的旧 flag / 凭据 UUID"当新 finding
+        # （list_coverage/list_notes 返回跨任务共享数据、Mythic callback description 含凭据 UUID），
+        # 步链在 step1 假早停。benchmark 派发时带 params.expected_flag（本任务真值）→ 只认真值命中。
+        expected_flag = str(recipe.get("expected_flag") or "").strip().lower()
+
+        def _expected_hit():
+            for f in _collect_findings(task_id):
+                if f.get("id") in before_ids:
+                    continue
+                blob = f"{f.get('title','')} {f.get('poc','')} {f.get('evidence','')}".lower()
+                if expected_flag and expected_flag in blob:
+                    return f
+            return None
+
+        if ctf_mode and expected_flag:
+            stop_check = lambda: _expected_hit() is not None
+            _tlog(task_id, "phase", f"CTF 早停判据：仅认本任务真值 ({expected_flag[:8]}…)")
+        else:
+            stop_check = (lambda: _flag_hit(task_id, before_ids) is not None) if ctf_mode else None
         results: List[dict] = []
         intel_block = ""  # 累积情报：pre-recon + recon 交付物
         target_id = resolve_target_id(target, target_id)  # 归一化：IP/URL → 稳定 target_id（查 KB 用）

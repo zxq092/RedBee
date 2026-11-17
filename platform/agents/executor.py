@@ -958,7 +958,7 @@ class InhouseAgent:
         # 网络攻击域能力：tun 设备 + NET_ADMIN（nilgiri M1.s4 起需在沙箱内建 OpenVPN 隧道
         # 打进隔离网段；无此能力的任务不受影响——只是容器多了 tun 设备）
         if str(cfg_env("HINSE_SANDBOX_NET_CAP", "1")) not in ("0", "false"):
-            cmd += " --cap-add NET_ADMIN --device /dev/net/tun"
+            cmd += " --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN --device /dev/net/tun"
         if target_path:
             cmd += f" -v {target_path}:/target"
         cmd += f" {_kali_image()} tail -f /dev/null"
@@ -1203,7 +1203,13 @@ class InhouseAgent:
         """CTF 提交纪律兜底（2026-10-26）：工具输出里出现 flag 形态（env CTF 前缀模式或
         UUIDv4）时注入"立即 submit_finding"提醒。同一值只提醒一次，单次结果最多提醒 2 个。
         治 m4-s4 型"答案在工具输出里却转去写文件、预算耗尽 0 提交"。"""
-        if not getattr(self, "_ctf_flag_watch", False) or tool_name in ("submit_finding", "record_coverage"):
+        # 历史/知识类工具返回的是**跨任务共享**的旧数据（notes/coverage 全表），
+        # 不是本任务的目标输出——2026-11-16 nilgiri m10.s3/s4 实测：list_coverage 里
+        # 别的靶场旧 evidence 含 FLAG{...}、list_notes 里旧笔记含 FLAG{...}，被当成本
+        # 任务 flag 自动提交 → 步链假早停（s3/s4 死在 step1/step2）。
+        if (not getattr(self, "_ctf_flag_watch", False)
+                or tool_name in ("submit_finding", "record_coverage", "list_coverage",
+                                 "list_notes", "list_reports", "recall", "kb_query")):
         # getattr：测试常用部分构造的 agent（不走 __init__）
             return
         exempt = self._flag_exempt_set()
@@ -1214,36 +1220,44 @@ class InhouseAgent:
             blob = blob[:300000]
         nudged = 0
         for rx in _flag_nudge_patterns():
-            for m in rx.findall(blob):
-                v = (m[0] if isinstance(m, tuple) and m else m) if not isinstance(m, str) else m
+            # finditer 取完整匹配：findall 对有分组正则只返回组文本
+            # （nilgiri-v7 实测：env 模式 (HTB|FLAG|...)\{...\} 的 findall 返回 "FLAG" 而非 "FLAG{...}"，
+            #  导致自动提交把裸 "FLAG" 当 flag 登记）
+            for m in rx.finditer(blob):
+                v = m.group(0)
                 v = str(v).strip()
                 key = v.lower()
                 if not v or key in self._flag_nudged or key in self._flag_exempt:
                     continue
                 self._flag_nudged.add(key)
+                # 即时自动提交（2026-11-04 nilgiri-v6 m5-s4 实测）：值逐字来自工具输出，
+                # 直接登记不依赖模型 submit_finding 调用质量（qwen3.8-27b 缺参故障会系统性丢分）
+                self._auto_submit_flag(v, getattr(self, "last_task_id", "") or "")
                 self.messages.append({"role": "user", "content": (
                     f"⚠️ FLAG CANDIDATE DETECTED in tool output: {v}\n"
-                    "工具输出里出现了 flag 形态的值。如果它是本任务的目标 flag，"
-                    "立即调用 submit_finding 提交（title 简述来源，evidence 粘贴相关输出行）——"
-                    "提交是当前最高优先级动作，不要先去写文件、保存脚本或做其他探索。")})
+                    "（平台已自动提交该候选 flag；若确认是目标 flag 可直接收口，无需重复提交）")})
                 nudged += 1
                 if nudged >= 2:
                     return
 
     def _flag_exempt_set(self) -> set:
-        """任务文本（首 user 消息）里已有的 flag 形态值——nudge 与 fabrication gate 共用豁免
-        （那是 desc 给的凭据/情报，m6-s1 实战误伤过）。惰性计算一次。"""
+        """任务文本（system/user 消息，含分步 plan 注入）里已有的 flag 形态值——nudge 与
+        fabrication gate 共用豁免（那是 desc 给的凭据/情报，m6-s1 实战误伤过）。
+        2026-11-16 nilgiri m10.s3 实测：只扫"首条 user 消息"不够——step prompt 里的
+        svc_deploy 凭据 UUID 被当 flag 自动提交；改为扫全部 system/user 消息，且用
+        finditer().group(0) 取完整匹配（findall 对带分组正则只返回分组文本）。惰性计算一次。"""
         if getattr(self, "_flag_exempt", None) is not None:
             return self._flag_exempt
         exempt: set = set()
         try:
-            first_user = next((m.get("content", "") for m in self.messages
-                               if m.get("role") == "user"), "")
+            prompt_text = "\n".join(
+                str(m.get("content") or "") for m in self.messages
+                if m.get("role") in ("system", "user"))
             for rx in _flag_nudge_patterns():
-                for v in rx.findall(str(first_user)):
-                    v = (v[0] if isinstance(v, tuple) and v else v) if not isinstance(v, str) else v
+                for m in rx.finditer(prompt_text):
+                    v = str(m.group(0)).strip()
                     if v:
-                        exempt.add(str(v).lower())
+                        exempt.add(v.lower())
         except Exception:
             pass
         self._flag_exempt = exempt
@@ -1521,6 +1535,12 @@ class InhouseAgent:
         r"(?:HTB|FLAG|GCTF|SEKAI|CTF|picoCTF|hkcert2{0,2}|HKN|Glacier|DUCTF|flag)\{[^}\s]{4,}\}",
         re.IGNORECASE,
     )
+    # nilgiri 等靶场 flag 是裸 UUIDv4（无前缀）——2026-11-04 nilgiri-v6 m5-s4 实测：
+    # agent 解出 UUID flag 但模型 submit_finding 缺参失败，本 fallback 原正则匹配不到 UUID → 0 findings 丢分
+    _UUID4_RE = re.compile(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        re.IGNORECASE,
+    )
 
     def _extract_and_submit_flags(self, task_id: str) -> None:
         """收口时扫描对话中出现过的 flag 模式，若 findings 为空则自动 submit_finding。
@@ -1532,50 +1552,67 @@ class InhouseAgent:
         except Exception:
             pass
         seen: set = set()
+        exempt = self._flag_exempt_set()
+        flag_res = (self._FLAG_RE, self._UUID4_RE)
         for msg in self.messages:
             content = msg.get("content") or ""
             if not content:
                 continue
-            for m in self._FLAG_RE.finditer(content):
-                flag = m.group(0)
-                if flag in seen:
-                    continue
-                seen.add(flag)
-                # 过滤明显的假 flag（占位/示例）
-                low = flag.lower()
-                if any(x in low for x in ("this_is_fake", "example", "placeholder", "xxxx", "your_flag")):
-                    continue
-                # 直接调 submit_finding 工具函数
+            for rx in flag_res:
+                for m in rx.finditer(content):
+                    flag = m.group(0)
+                    if flag in seen:
+                        continue
+                    seen.add(flag)
+                    # 任务文本里给的情报/凭据（如 svc_deploy 的口令 UUID）不是 flag
+                    if flag.lower() in exempt:
+                        continue
+                    # 过滤明显的假 flag（占位/示例）
+                    low = flag.lower()
+                    if any(x in low for x in ("this_is_fake", "example", "placeholder", "xxxx", "your_flag")):
+                        continue
+                    self._auto_submit_flag(flag, task_id)
+
+    def _auto_submit_flag(self, flag: str, task_id: str) -> None:
+        """直接调 submit_finding 登记 flag（值逐字来自工具输出/对话，无幻觉风险）。
+        供 wrapup fallback 与 flag 监控即时提交共用。
+        注意：协程必须在确定执行路径后再创建——run_until_complete 与 ensure_future 各需独立协程
+        （nilgiri-v7 实测：先建协程再兜底 ensure_future 会 'cannot reuse already awaited coroutine'）。"""
+        try:
+            from agents.tools import tool_submit_finding
+            import asyncio as _aio
+
+            def _mk():
+                return tool_submit_finding(
+                    title=f"[auto-extracted] CTF flag {flag[:20]}...",
+                    poc=f"Flag extracted from agent conversation: {flag}",
+                    evidence=flag,
+                    asset=getattr(self, "last_task_id", "") or "",
+                    severity="high", vuln_class="ctf_flag",
+                    confidence="high", task_id=task_id,
+                )
+
+            try:
+                running = _aio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is not None:
+                # 已在事件循环内（nudge 路径）：调度新任务
                 try:
-                    from agents.tools import tool_submit_finding
-                    import asyncio as _aio
-                    result = _aio.get_event_loop().run_until_complete(
-                        tool_submit_finding(
-                            title=f"[auto-extracted] CTF flag {flag[:20]}...",
-                            poc=f"Flag extracted from agent conversation: {flag}",
-                            evidence=flag,
-                            asset=self.last_task_id or "",
-                            severity="high", vuln_class="ctf_flag",
-                            confidence="high", task_id=task_id,
-                        )
-                    )
+                    _aio.ensure_future(_mk())
+                    print(f"[flagwatch] auto-submitted flag (async): {flag[:30]}...", flush=True)
+                except Exception:
+                    pass
+            else:
+                # 无事件循环（wrapup 同步路径）：直接跑完
+                try:
+                    result = _aio.get_event_loop().run_until_complete(_mk())
                     if result.get("accepted"):
-                        print(f"[wrapup] auto-submitted flag: {flag[:30]}...", flush=True)
-                except Exception as e:
-                    # asyncio 可能已在运行中，用 create_task
-                    try:
-                        from agents.tools import tool_submit_finding
-                        asyncio.ensure_future(tool_submit_finding(
-                            title=f"[auto-extracted] CTF flag {flag[:20]}...",
-                            poc=f"Flag extracted from agent conversation: {flag}",
-                            evidence=flag,
-                            asset=self.last_task_id or "",
-                            severity="high", vuln_class="ctf_flag",
-                            confidence="high", task_id=task_id,
-                        ))
-                        print(f"[wrapup] auto-submitted flag (async): {flag[:30]}...", flush=True)
-                    except Exception:
-                        pass
+                        print(f"[flagwatch] auto-submitted flag: {flag[:30]}...", flush=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _finalize(self, task_id: str, target: str, runtime: ModelRuntime) -> Dict[str, Any]:
         findings, coverage = self._case_db_rows()

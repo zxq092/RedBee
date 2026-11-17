@@ -122,6 +122,11 @@ def dispatch(adapter: Adapter, tgt: dict, client: httpx.Client, session_prefix: 
         body["params"]["steps"] = plan  # 分步执行（引擎顺序子任务）：spec 每题可选 plan=[{name,prompt,wait_s}]
     if dump_trajectory:
         body["params"]["dump_trajectory"] = True
+    # CTF 早停真值（spec 的 flag）：编排器只认本任务真值命中才早停，
+    # 防跨任务旧数据/凭据 UUID 被自动提取成 finding 后把步链假收口（2026-11-16 nilgiri m10 实测）
+    expected = (tgt.get("flag") or "").strip()
+    if expected:
+        body["params"]["expected_flag"] = expected
     r = client.post("/api/task", json=body)
     r.raise_for_status()
     return r.json()["task_id"]
@@ -174,7 +179,8 @@ def board_findings(task_id: str, client: httpx.Client) -> int:
 def run_target(adapter: Adapter, tgt: dict, client: httpx.Client, opts) -> dict:
     cid = tgt["cid"]
     task_id = dispatch(adapter, tgt, client, opts.session_prefix, opts.timeout_min * 60,
-                       getattr(opts, "model", "") or "")
+                        getattr(opts, "model", "") or "",
+                        dump_trajectory=getattr(opts, "dump_trajectory", False))
     status, elapsed = receive_done(task_id, client, opts.timeout_min * 60)
     flags = extract_flag(task_id, client)
     known = (tgt.get("flag") or "").strip()
